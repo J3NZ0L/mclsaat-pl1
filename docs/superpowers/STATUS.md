@@ -1,11 +1,10 @@
 # STATUS
 
-_Updated: 2026-09-29 (T10, T12)_
+_Updated: 2026-09-29 (T11)_
 
 ## Where we are
-**T10 and T12 done** — `docker compose up --build` brings the whole landscape up from scratch, and
-`scripts/demo.sh` drives the happy path and both failure branches against it, 21 checks, exit 0.
-145 tests green. T11 (the non-Docker path) is written but not yet verified.
+**T11 done** — both start-up paths are verified against the **same** demo script, 21 checks and exit 0
+on each. 145 tests green.
 * `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
 * `billing-service`: 43 tests green (15 unit + 28 integration over a real HTTP port, with the
   Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer and the batch leg
@@ -53,7 +52,7 @@ _Updated: 2026-09-29 (T10, T12)_
 | T08 subsystem-clients + mappers | done |
 | T09 ops-console | done |
 | T10 Docker compose | done |
-| T11 non-Docker local path | written, NOT yet verified |
+| T11 non-Docker local path | done |
 | T12 demo script | done |
 | T13 docs | todo |
 | T14 CLAUDE.md + final pass | todo |
@@ -157,13 +156,19 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
 * Docker Hub rate-limits (429) on `load metadata`; pull base images separately with a retry first.
 * The Docker daemon died once mid-build; restart with `nohup dockerd &`.
 
+* Non-Docker path verified too. PostgreSQL 16 is installed in this container but not running:
+  `pg_ctlcluster 16 main start`, then `su postgres -c "PGHOST=/var/run/postgresql
+  scripts/create-local-databases.sh"`, then `scripts/run-local.sh`. The same
+  `scripts/demo.sh` passed all 21 checks against it, and `scripts/stop-local.sh` stopped all five
+  JVMs cleanly.
+
 ## Half-done
-**T11** `scripts/run-local.sh`, `scripts/stop-local.sh` and `scripts/create-local-databases.sh` are
-written but have not been run. They need a PostgreSQL server on the host.
+Nothing.
 
 ## Next action
-Verify T11: run `scripts/create-local-databases.sh` and `scripts/run-local.sh` against a local
-PostgreSQL, then `scripts/demo.sh` against that. Then T13 (docs refresh) and T14 (final pass).
+T13: refresh the docs against what was actually built (the API reference's ops section, the run guide's
+seed-data and troubleshooting tables), then T14: final full pass — `mvn verify`, both start-up paths,
+the demo, and mark the PR ready for review.
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch
