@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: billing-service
+  datasource:
+    url: ${BILLING_DB_URL:jdbc:postgresql://localhost:5432/billingdb}
+    username: ${BILLING_DB_USER:billing_app}
+    password: ${BILLING_DB_PASSWORD:billing_app}
+  flyway:
+    enabled: true
+    schemas: billing
+    default-schema: billing
+    create-schemas: true
+
+server:
+  port: ${BILLING_PORT:8083}
+
+billing:
+  # Hungarian standard rate. Frozen onto each invoice when it is issued.
+  vat-rate: 0.27
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    hu.mclsaat.legacy: INFO

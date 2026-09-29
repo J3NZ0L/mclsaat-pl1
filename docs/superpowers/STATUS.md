@@ -1,9 +1,13 @@
 # STATUS
 
-_Updated: 2026-09-29 (T03)_
+_Updated: 2026-09-29 (T04)_
 
 ## Where we are
-**T03 done** — subsystem 1 (`catalog-service`) is implemented, tested (17 integration tests green) and verified running for real against a PostgreSQL container.
+**T04 done** — subsystems 1 and 3 are implemented and verified running.
+* `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
+* `billing-service`: 16 tests green (5 VAT unit + 11 SOAP integration over a real HTTP port);
+  a raw `curl` SOAP POST against the running jar returns a proper `getInvoicesResponse`, and the
+  generated WSDL advertises all seven operations.
 
 ## Environment facts verified this session
 * Java 21.0.10, Maven 3.9.11, Docker 29.3.1 + compose v5.1.1, psql client 16.13.
@@ -21,7 +25,7 @@ _Updated: 2026-09-29 (T03)_
 | T01 plan, branch, draft PR | done |
 | T02 Maven skeleton | done |
 | T03 catalog-service | done |
-| T04 billing-service (schema + SOAP) | todo |
+| T04 billing-service (schema + SOAP) | done |
 | T05 stripe-sim + payment start | todo |
 | T06 billing batch/EDI + ops SOAP ops | todo |
 | T07 activation-service (Flowable) | todo |
@@ -53,9 +57,22 @@ _Updated: 2026-09-29 (T03)_
 ## Half-done
 Nothing. The module POMs currently carry only the dependencies needed so far; each task adds its own.
 
+## Findings worth keeping
+* The gross/net VAT seam produces a **real, measurable rounding artefact**. Of the nine seeded
+  plan prices, seven survive gross -> net -> gross unchanged, `MOB-VOICE-0010` gains one fillér
+  (5990.00 -> 5990.01) and `INET-FIB-1000` loses one (17990.00 -> 17989.99). This is pinned by
+  `VatCalculatorTest.theRoundTripErrorAcrossTheWholeSeededCatalogIsExactlyThis` and is the
+  headline example for `docs/semantic-mismatches.md`. Do not "fix" it without updating both.
+* The billing SOAP contract already declares all seven operations (`startPayment`,
+  `exportPaymentBatch`, `listUnconfirmedBatches`, `getPaymentBatch`, `reconcileBatch` are in the
+  XSD/WSDL but not yet implemented in `BillingEndpoint`); T05 and T06 fill them in.
+* `nillable="true"` on an `xs:int` makes xjc generate `JAXBElement<Integer>`; use plain
+  `minOccurs="0"` for an optional int.
+
 ## Next action
-T04: `billing-service` part 1 — Flyway schema (`billing_account`, `invoice`, `payment_batch`),
-seed data, contract-first XSD/WSDL plus the Spring-WS endpoint for `GetInvoices` / `CreateInvoice`.
+T05: `stripe-sim` module plus the `StripeGateway` in billing — implement the `startPayment` SOAP
+operation and the Stripe payment-succeeded callback, wired to `stripe/stripe-mock` in Docker and
+to `stripe-sim` locally.
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch
