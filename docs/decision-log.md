@@ -1,0 +1,260 @@
+# Decision log
+
+Decisions taken while building the phase-1 legacy system, with the reasoning that produced them.
+Where a decision overrides something in `INITIAL_DESIGN.md` or `PROJECT_DESC_HUN.md`, that is called
+out explicitly.
+
+Standing constraints these were all taken under, from the working agreement:
+priority order **realistic heterogeneity > works end-to-end > simplicity > performance**; never
+trade away the heterogeneity requirements or the system actually running; no real users, no scale
+requirement, single-developer research PoC.
+
+---
+
+## DL-001 — Stack: Java 21, Spring Boot 3.5.6, Flowable 7.2.0, PostgreSQL 16, Maven
+
+Given by the brief. The only open question was the Flowable/Spring Boot pairing, since Flowable 7.2.0
+was released against an earlier Spring Boot line. Verified before building anything by running a
+throwaway Spring Boot 3.5.6 app with `flowable-spring-boot-starter-process:7.2.0`, a process with a
+waiting message catch event, and a `messageEventReceived` correlation into it. It completed. That
+mechanism is what subsystem 2 is built on, so it was worth ten minutes to confirm rather than
+discover at T07.
+
+## DL-002 — Four subsystem processes plus two supporting modules, in one Maven reactor
+
+`catalog-service`, `activation-service`, `billing-service` are the three subsystems the brief asks
+for. `ops-console` is a fourth process, and `subsystem-clients` and `stripe-sim` are libraries/tools.
+
+Why a fourth process rather than folding ops into one of the three: the failure branches span two
+subsystems each, and the ops story is precisely that no single subsystem can see the whole problem.
+Putting the diagnostics inside any one of them would destroy the thing being demonstrated.
+
+One reactor rather than separate repositories because this is a single-developer PoC and cross-module
+refactoring should stay cheap.
+
+## DL-003 — Tests split `*Test` (unit) / `*IT` (integration), Failsafe for the latter
+
+`mvn test` runs the fast unit tests with no Docker and no database. `mvn verify` additionally runs the
+integration tests, which need PostgreSQL containers, a live HTTP port, a Flowable job executor and
+real files. **The default command for this repository is `mvn verify`, not `mvn test`** — `mvn test`
+passing means almost nothing here.
+
+## DL-004 — `spring-boot-maven-plugin` uses `<classifier>app</classifier>`
+
+Without it, `repackage` replaces each module's main artifact with the fat jar. Failsafe runs *after*
+`package`, so it then puts the fat jar on the test classpath, where the classes live under
+`BOOT-INF/classes` and are invisible — test discovery fails with `NoClassDefFoundError` before a
+single test runs. With the classifier, the plain jar stays the main artifact and the runnable jar is
+`target/<module>-1.0.0-SNAPSHOT-app.jar`. The Dockerfiles and `scripts/run-local.sh` use that name.
+
+## DL-005 — Docker Engine API version pinned for Testcontainers
+
+Testcontainers 1.21.3 bundles docker-java, which negotiates Docker Engine API **1.32**. Docker Engine
+25 and newer refuse anything below 1.40 (`client version 1.32 is too old`), so every container-based
+test failed with "Could not find a valid Docker environment" on a machine with Docker 29. Failsafe now
+passes `-Dapi.version=${docker.api.version}`, default `1.44`, which docker-java reads as its
+`DockerClientConfig` API version. Override with `-Ddocker.api.version=...` on an older daemon.
+
+Rejected alternatives: a `~/.docker-java.properties` file (works, but invisible to a fresh clone and
+to CI), and dropping Testcontainers for an embedded PostgreSQL (PostgreSQL's `initdb` refuses to run
+as root, which this container is).
+
+## DL-006 — Seven tables, not four. Overshooting the scope ceiling, and why
+
+`INITIAL_DESIGN.md` sets a ceiling of "kb. 4 tábla összesen". The build has seven, excluding
+Flowable's engine tables:
+
+| # | Table | Subsystem | Why it exists |
+| - | --- | --- | --- |
+| 1 | `catalog.plan` | 1 | core — the product catalogue |
+| 2 | `catalog.subscriber` | 1 | core — the customer |
+| 3 | `catalog.subscription` | 1 | core — what was bought |
+| 4 | `billing.invoice` | 3 | core — what is owed |
+| 5 | `billing.billing_account` | 3 | **the vehicle for the identity mismatch** |
+| 6 | `billing.payment_batch` | 3 | **the vehicle for failure branch B** |
+| 7 | `activation.activation_order` | 2 | **the vehicle for subsystem 2 having a data model at all** |
+
+The four core tables match the ceiling exactly. Each of the other three is the minimum structure
+needed for a property the brief requires and none of them adds a new domain concept:
+
+* **`billing_account`** is how `"00000042"`, `42` and `"BA-00042"` become three names for one person.
+  The heterogeneity minimum requires "eltérő ID-terek" and this is what makes the mismatch a lookup
+  rather than a formatting convention. Without it billing would have to store the catalog's customer
+  number, which would collapse the mismatch.
+* **`payment_batch`** is failure branch B. The branch *is* "a batch was sent and never acknowledged",
+  which is a statement about a batch. Modelling it as columns on `invoice` was considered and
+  rejected: the batch's own file name, sent/acked timestamps and totals are what ops reads, and
+  grouping invoices by a nullable `batch_id` string to reconstruct them would be worse code for no
+  structural saving.
+* **`activation_order`** is subsystem 2's data model. The brief requires at least one subsystem to be
+  semantically different, and the process engine is nominated as that subsystem. Keeping the order
+  only in Flowable process variables was considered — it would have saved the table — and rejected:
+  querying by order number across runtime and historic variable tables is fragile, and an order with
+  no schema of its own has no dialect to disagree with anyone in, which is the entire point.
+
+## DL-007 — Two faces of the deliberate failure branch, not one
+
+`INITIAL_DESIGN.md` service 6 names both: "Elakadt aktiválás **vagy** számlázási
+batch-visszaigazolás". Both are implemented.
+
+They are not two separate features. They are the same class of problem — *a state that exists in one
+subsystem and cannot be expressed in its neighbour* — demonstrated in two different subsystems with
+two different protocols. Failure branch A is found by correlating REST with direct JDBC; branch B by
+correlating SOAP with files on disk. Implementing only one would leave half the protocol surface
+without an ops story, and the diagnostics are the place where crossing protocol boundaries by hand is
+most obviously painful, which is what phase 2 is meant to fix.
+
+Each also has a seeded instance (`SUB-2026-000009`, `BATCH-20260925-001`) so both are findable from a
+cold start without triggering anything.
+
+## DL-008 — The boundary timer is non-interrupting
+
+`cancelActivity="false"` on the `provisioningTimeout` boundary event. This is the single most
+consequential line in the BPMN file.
+
+With an interrupting timer, the timeout would cancel the `waitForProvisioning` sub-process, destroy
+the message subscription, and leave ops with nothing to correlate into — the only possible repair
+would be starting a new order, abandoning the catalog row. With a non-interrupting timer the timeout
+runs a side branch that *reports* the problem and the wait stays live, so the callback that eventually
+arrives — or the one ops injects by hand — finishes the order normally.
+
+That makes the repair path identical to the happy path, which is both better engineering and a far
+better demo: the engine cannot tell an ops-injected message from a platform callback.
+
+Cancelling remains available as a separate, explicitly irreversible operation.
+
+## DL-009 — `activation-service` does *not* use `subsystem-clients`
+
+Activation has its own hand-rolled `CatalogRestClient` and `BillingSoapClient`, duplicating
+translation logic that `subsystem-clients` also implements for the ops console.
+
+This looks like a mistake and is deliberate. Each legacy subsystem in a real landscape grew its own
+integration layer, with its own idea of the rules, at its own time. That duplication *is* the problem
+phase 2 is supposed to solve: an MCP server replaces N ad-hoc translations with one. Factoring it out
+now would delete the evidence and make the tokenomics comparison meaningless — there would be nothing
+to compare against.
+
+`subsystem-clients` exists in parallel as the clean, canonical layer, so the contrast is visible side
+by side in one repository.
+
+## DL-010 — Activation keeps a checked-in copy of billing's XSD
+
+`activation-service/src/main/resources/xsd/billing-v1-vendor-copy.xsd` is a copy of
+`billing-service/src/main/resources/xsd/billing-v1.xsd`, and activation generates its own JAXB stubs
+from it into its own package.
+
+That is what an integration team handed a WSDL by another department actually does. Alternatives
+considered:
+
+* **A shared `billing-soap-contract` module.** Zero drift, less code — but sharing generated types
+  between provider and consumer is modern practice, not legacy practice, and it quietly removes a
+  boundary the project is about.
+* **A relative path to billing's XSD in activation's POM.** Cross-module file references in a Maven
+  build; fragile and no more honest.
+
+The cost of the copy is drift, so `BillingContractCopyTest` compares the two files and fails with the
+exact `cp` command to run. It skips (rather than fails) if `billing-service` is not on disk, so the
+module remains independently buildable.
+
+## DL-011 — Stripe: official `stripe-mock` under compose, `stripe-sim` locally, real SDK in both
+
+The brief asks for Stripe's official `stripe-mock` image or a Stripe-API-shaped simulator, so a real
+test key can be swapped in later. Both are provided.
+
+`stripe-mock` is the official image and is what compose runs. It answers with canned data and has no
+memory, so a retrieve after a confirm still reports the initial status — fine for creating
+PaymentIntents, useless for showing a payment completing. `stripe-sim` is ~150 lines implementing the
+three endpoints this system calls, in Stripe's response shape, with state. It listens on 12111, the
+same port, so the two are drop-in replacements.
+
+Both are reached through the official `stripe-java` SDK over HTTP, so pointing at real Stripe is
+`STRIPE_API_BASE=https://api.stripe.com` plus an `sk_test_` key and no code change.
+
+Note for anyone changing the default key: `stripe-mock` validates the *shape* of the API key and
+requires it to be alphanumeric after the `sk_test_` prefix. `sk_test_mclsaat_local` was rejected with
+an `AuthenticationException`; `sk_test_mclsaat123` is accepted.
+
+## DL-012 — No authentication anywhere
+
+No users, no tokens, no TLS between services. The brief is explicit that there are no real users and
+this is a single-developer research PoC, and an auth layer would add surface without adding any of
+the heterogeneity the project is about.
+
+The *boundary* is nevertheless modelled, because phase 2 needs it: customer-facing endpoints and
+ops-only endpoints are separated by path (`/activation/v1/...` versus `/activation/v1/ops/...`, and
+the ops console as a whole), and the ops operations on billing are separate SOAP operations. When the
+ops agent gets wider permissions than the customer agent, it will get them along an existing seam.
+
+Nothing in this system should be exposed outside a developer machine or a compose network.
+
+## DL-013 — Billing's payment lifecycle has three states, not two
+
+`OPEN` → `SETTLEMENT_PENDING` → `PAID`, rather than `OPEN` → `PAID`.
+
+The middle state is money Stripe has taken that the business does not yet consider posted, because
+the clearing house has not acknowledged the settlement batch. It exists so that failure branch B has
+something to strand *in*, and because it is what a real telco's books actually look like: the card
+processor and the bank reconciliation are different events days apart.
+
+It also gives the Stripe webhook an honest job. Marking the invoice `PAID` on the webhook would be
+simpler and would make the batch leg decorative.
+
+## DL-014 — VAT: billing invoices on net, the catalog quotes gross, and the round trip loses a fillér
+
+Hungarian consumer prices are gross; billing systems invoice on net. So the catalog stores a gross
+`monthly_fee_minor` and `createInvoice` takes a **net** amount, leaving the caller to divide by 1.27.
+Both sides round to two decimals independently.
+
+For two of the nine seeded plans the result does not come back to the price the customer was quoted:
+`MOB-VOICE-0010` gains a fillér (5990.00 → 5990.01) and `INET-FIB-1000` loses one
+(17990.00 → 17989.99).
+
+**This is not a bug and must not be "fixed" in isolation.** It is the measurable cost of two
+subsystems disagreeing about what "the price" means, it is pinned across the whole catalogue by
+`VatCalculatorTest.theRoundTripErrorAcrossTheWholeSeededCatalogIsExactlyThis`, and it is documented in
+`semantic-mismatches.md`. Changing the rounding means updating all three together. Deciding who owns
+the discrepancy is exactly the kind of question phase 2 is meant to surface.
+
+## DL-015 — `activation.provisioning.callback-base-url` is configuration, and the ITs pin the port
+
+The simulated provisioning platform calls back over real HTTP to activation's own public callback
+endpoint, from a scheduled thread, rather than reaching into the engine directly. That means it needs
+a URL for the service it lives in, which under compose is the service name.
+
+Consequence for tests: the integration tests use `webEnvironment = DEFINED_PORT` with a fixed port
+(18082) instead of `RANDOM_PORT`, because the callback URL has to be known before the context starts.
+A lazily-resolved "call myself" mode was considered and rejected as production magic in service of a
+test.
+
+The alternative — having the simulator call the correlation service directly in-process — was
+rejected because it would stop testing the callback endpoint, which is the asynchronous seam of the
+whole system.
+
+## DL-016 — Execution lookups go via the process instance id, not the business key
+
+`ExecutionQuery.processInstanceBusinessKey(...)` matches the process instance's *own* execution row,
+because that is where Flowable stores the business key. The `provisioningCompleted` message
+subscription lives on a **child** execution inside the `waitForProvisioning` sub-process, so querying
+executions by business key finds the root and silently reports that nothing is waiting.
+
+`ActivationOrderService.findProvisioningSubscription` therefore resolves the process instance by
+business key first and then queries its executions by `processInstanceId`. This was found by an
+integration test asserting `waitingForCallback` after the process had demonstrably parked — worth
+noting because the symptom (an empty result, not an error) is indistinguishable from "the process
+already moved on".
+
+## DL-017 — The demo shortens the timers, and says so
+
+`activation.provisioning.timeout` defaults to `PT45S` and the demo overrides it per order to a few
+seconds; `billing.batch.unconfirmed-after-minutes` defaults to 2. A production SLA would be hours and
+a settlement window overnight.
+
+Short timers are the only way a failure branch can be demonstrated in a two-minute scripted demo. They
+are all configuration, all documented in `run-guide.md`, and nothing in the code assumes they are
+short.
+
+## DL-018 — `billing.batch.auto-export-enabled` defaults to false
+
+A real deployment would cut settlement batches on a nightly cron. Here the scheduled export exists but
+is off by default, so the demo and the tests decide when a batch is cut and can assert on its
+contents. Turning it on is one property.
