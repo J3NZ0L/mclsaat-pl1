@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: catalog-service
+  datasource:
+    url: ${CATALOG_DB_URL:jdbc:postgresql://localhost:5432/catalogdb}
+    username: ${CATALOG_DB_USER:catalog_app}
+    password: ${CATALOG_DB_PASSWORD:catalog_app}
+  flyway:
+    enabled: true
+    schemas: catalog
+    default-schema: catalog
+    create-schemas: true
+  jackson:
+    default-property-inclusion: always
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${CATALOG_PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    hu.mclsaat.legacy: INFO

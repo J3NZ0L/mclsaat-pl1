@@ -24,6 +24,14 @@
     <stripe-java.version>29.4.0</stripe-java.version>
     <jaxb2-maven-plugin.version>3.2.0</jaxb2-maven-plugin.version>
     <testcontainers.version>1.21.3</testcontainers.version>
+
+    <!--
+      Testcontainers bundles docker-java, which still negotiates Docker Engine API 1.32 by
+      default. Docker Engine 25 and newer refuse anything below 1.40 ("client version 1.32 is
+      too old"), so the integration tests cannot reach the daemon unless the API version is
+      pinned. Override with -Ddocker.api.version=... on a Docker older than 25.
+    -->
+    <docker.api.version>1.44</docker.api.version>
   </properties>
 
   <modules>
@@ -71,6 +79,15 @@
           <groupId>org.springframework.boot</groupId>
           <artifactId>spring-boot-maven-plugin</artifactId>
           <version>${spring-boot.version}</version>
+          <configuration>
+            <!--
+              The runnable fat jar gets the "app" classifier so the plain jar stays the module's
+              main artifact. Without this, `repackage` replaces the main artifact and Failsafe
+              (which runs after `package`) puts a fat jar on the test classpath, where the classes
+              live under BOOT-INF/classes and are therefore invisible.
+            -->
+            <classifier>app</classifier>
+          </configuration>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -81,6 +98,29 @@
         <configuration>
           <parameters>true</parameters>
         </configuration>
+      </plugin>
+      <!--
+        Unit tests are named *Test and run in `mvn test`. Tests that need a real PostgreSQL
+        container, a running Flowable engine or a live HTTP port are named *IT and run in
+        `mvn verify` through Failsafe, so a plain `mvn test` stays fast and Docker-free.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <!-- read by docker-java as its DockerClientConfig "api.version" key -->
+            <api.version>${docker.api.version}</api.version>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
