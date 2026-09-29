@@ -9,6 +9,13 @@
     <version>1.0.0-SNAPSHOT</version>
   </parent>
   <artifactId>stripe-sim</artifactId>
+  <name>Stripe simulator (non-Docker local path)</name>
+  <description>
+    Implements the handful of Stripe REST endpoints this system uses, in Stripe's own response
+    shape, so the local non-Docker path does not need the stripe/stripe-mock container. Docker
+    compose uses the official stripe/stripe-mock image instead.
+  </description>
+
   <dependencies>
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -16,10 +23,15 @@
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
+
   <build>
     <plugins>
       <plugin>

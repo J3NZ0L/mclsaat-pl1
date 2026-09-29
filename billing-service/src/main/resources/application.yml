@@ -17,6 +17,16 @@ server:
 billing:
   # Hungarian standard rate. Frozen onto each invoice when it is issued.
   vat-rate: 0.27
+  stripe:
+    # No real key exists for this project. Point api-base at stripe/stripe-mock (compose),
+    # stripe-sim (local) or https://api.stripe.com, and drop in an sk_test_... key to talk to
+    # Stripe for real. Nothing else in the code has to change.
+    #
+    # The key must be alphanumeric after the sk_test_ prefix: stripe-mock validates the shape and
+    # rejects anything with an underscore in the body ("Please authenticate by specifying an
+    # Authorization header with any valid looking testmode secret API key").
+    api-key: ${STRIPE_API_KEY:sk_test_mclsaat123}
+    api-base: ${STRIPE_API_BASE:http://localhost:12111}
 
 management:
   endpoints:

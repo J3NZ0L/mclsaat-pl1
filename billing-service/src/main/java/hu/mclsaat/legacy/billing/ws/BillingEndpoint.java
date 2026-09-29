@@ -1,12 +1,15 @@
 package hu.mclsaat.legacy.billing.ws;
 
 import hu.mclsaat.legacy.billing.domain.InvoiceRow;
+import hu.mclsaat.legacy.billing.payment.PaymentService;
 import hu.mclsaat.legacy.billing.service.BillingException;
 import hu.mclsaat.legacy.billing.service.InvoiceService;
 import hu.mclsaat.legacy.billing.ws.gen.CreateInvoiceRequest;
 import hu.mclsaat.legacy.billing.ws.gen.CreateInvoiceResponse;
 import hu.mclsaat.legacy.billing.ws.gen.GetInvoicesRequest;
 import hu.mclsaat.legacy.billing.ws.gen.GetInvoicesResponse;
+import hu.mclsaat.legacy.billing.ws.gen.StartPaymentRequest;
+import hu.mclsaat.legacy.billing.ws.gen.StartPaymentResponse;
 import org.springframework.ws.server.endpoint.annotation.Endpoint;
 import org.springframework.ws.server.endpoint.annotation.PayloadRoot;
 import org.springframework.ws.server.endpoint.annotation.RequestPayload;
@@ -21,10 +24,12 @@ public class BillingEndpoint {
     static final String NAMESPACE = "http://mclsaat.hu/legacy/billing/v1";
 
     private final InvoiceService invoices;
+    private final PaymentService payments;
     private final WsMapper mapper;
 
-    public BillingEndpoint(InvoiceService invoices, WsMapper mapper) {
+    public BillingEndpoint(InvoiceService invoices, PaymentService payments, WsMapper mapper) {
         this.invoices = invoices;
+        this.payments = payments;
         this.mapper = mapper;
     }
 
@@ -90,6 +95,31 @@ public class BillingEndpoint {
         CreateInvoiceResponse response = new CreateInvoiceResponse();
         response.setInvoice(mapper.toWs(result.invoice(), request.getCustomerRef()));
         response.setAlreadyExisted(result.alreadyExisted());
+        return response;
+    }
+
+    /**
+     * Service 5b: start a card payment for an invoice.
+     *
+     * <p>Returns Stripe's client secret, which is the natural hand-off point for the UCP checkout
+     * in phase 3. Note the currency amount changes representation again on the way out: the
+     * invoice holds NUMERIC(12,2) major units, Stripe is told an integer count of minor units.
+     */
+    @PayloadRoot(namespace = NAMESPACE, localPart = "startPaymentRequest")
+    @ResponsePayload
+    public StartPaymentResponse startPayment(@RequestPayload StartPaymentRequest request) {
+        if (request.getInvoiceNo() == null || request.getInvoiceNo().isBlank()) {
+            throw new BillingException.BadRequest("invoiceNo is required");
+        }
+        var intent = payments.startPayment(request.getInvoiceNo().trim());
+
+        StartPaymentResponse response = new StartPaymentResponse();
+        response.setInvoiceNo(request.getInvoiceNo().trim());
+        response.setPaymentRef(intent.id());
+        response.setClientSecret(intent.clientSecret());
+        response.setAmountMinor(intent.amountMinor());
+        response.setCurrency(intent.currency());
+        response.setPaymentStatus(intent.status());
         return response;
     }
 

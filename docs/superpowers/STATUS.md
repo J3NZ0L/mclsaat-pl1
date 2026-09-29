@@ -1,13 +1,17 @@
 # STATUS
 
-_Updated: 2026-09-29 (T04)_
+_Updated: 2026-09-29 (T05)_
 
 ## Where we are
-**T04 done** — subsystems 1 and 3 are implemented and verified running.
+**T05 done** — subsystems 1 and 3 are implemented (bar the batch/EDI leg) and verified running.
 * `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
-* `billing-service`: 16 tests green (5 VAT unit + 11 SOAP integration over a real HTTP port);
-  a raw `curl` SOAP POST against the running jar returns a proper `getInvoicesResponse`, and the
-  generated WSDL advertises all seven operations.
+* `billing-service`: 27 tests green (8 unit + 19 integration over a real HTTP port, with the
+  Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer). A raw `curl`
+  SOAP POST against the running jar returns a proper `getInvoicesResponse`, and the generated
+  WSDL advertises all seven operations.
+* `stripe-sim` is a verified drop-in for `stripe/stripe-mock`: the same `startPayment` SOAP call
+  through the same Stripe SDK returned `pi_sim_00000000001` / 1299000 minor units, `confirm`
+  reported `succeeded`, and the webhook moved `2026/INV/000002` to `SETTLEMENT_PENDING`.
 
 ## Environment facts verified this session
 * Java 21.0.10, Maven 3.9.11, Docker 29.3.1 + compose v5.1.1, psql client 16.13.
@@ -26,7 +30,7 @@ _Updated: 2026-09-29 (T04)_
 | T02 Maven skeleton | done |
 | T03 catalog-service | done |
 | T04 billing-service (schema + SOAP) | done |
-| T05 stripe-sim + payment start | todo |
+| T05 stripe-sim + payment start | done |
 | T06 billing batch/EDI + ops SOAP ops | todo |
 | T07 activation-service (Flowable) | todo |
 | T08 subsystem-clients + mappers | todo |
@@ -68,11 +72,17 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
   XSD/WSDL but not yet implemented in `BillingEndpoint`); T05 and T06 fill them in.
 * `nillable="true"` on an `xs:int` makes xjc generate `JAXBElement<Integer>`; use plain
   `minOccurs="0"` for an optional int.
+* **stripe-mock validates the shape of the API key**: it must be alphanumeric after the
+  `sk_test_` prefix. `sk_test_mclsaat_local` was rejected with an `AuthenticationException`;
+  `sk_test_mclsaat123` works. The default in `application.yml` is already correct.
+* `pkill -f <pattern>` inside a Bash tool call can match the call's **own** command line (the
+  pattern usually appears in the script text) and kill the shell, which surfaces as exit 144.
+  Use `scratchpad/stopjars.sh`, which selects PIDs with `ps` + `awk` instead.
 
 ## Next action
-T05: `stripe-sim` module plus the `StripeGateway` in billing — implement the `startPayment` SOAP
-operation and the Stripe payment-succeeded callback, wired to `stripe/stripe-mock` in Docker and
-to `stripe-sim` locally.
+T06: `billing-service` part 2 — the fixed-width batch outbox writer, the acknowledgement inbox
+poller, the clearing-house simulator with suppressible ACK, and the four remaining ops SOAP
+operations (`exportPaymentBatch`, `listUnconfirmedBatches`, `getPaymentBatch`, `reconcileBatch`).
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch

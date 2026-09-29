@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: stripe-sim
+
+server:
+  # the port stripe/stripe-mock listens on, so the two are drop-in replacements
+  port: ${STRIPE_SIM_PORT:12111}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

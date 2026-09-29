@@ -56,6 +56,11 @@ public class InvoiceRepository {
                 MAPPER, requestRef).stream().findFirst();
     }
 
+    public Optional<InvoiceRow> findByPaymentRef(String paymentRef) {
+        return jdbc.query("SELECT " + COLUMNS + " FROM billing.invoice WHERE payment_ref = ?",
+                MAPPER, paymentRef).stream().findFirst();
+    }
+
     public List<InvoiceRow> search(String baNo, String status, String subscriptionRef) {
         StringBuilder sql = new StringBuilder("SELECT " + COLUMNS + " FROM billing.invoice WHERE ba_no = ?");
         List<Object> args = new ArrayList<>();
