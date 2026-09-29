@@ -258,3 +258,73 @@ short.
 A real deployment would cut settlement batches on a nightly cron. Here the scheduled export exists but
 is off by default, so the demo and the tests decide when a batch is cut and can assert on its
 contents. Turning it on is one property.
+
+## DL-019 — Order numbers are query parameters, not path variables
+
+Activation's order numbers contain slashes (`ORD/2026/0000001`), because that is what the subsystem's
+numbering scheme looks like. A path variable cannot carry one:
+
+* Tomcat rejects an encoded `%2F` in a path by default, and
+* configuring it to decode turns `ORD%2F2026%2F0000001` into three path segments, which no longer
+  match `/orders/{orderNo}`.
+
+So `GET /activation/v1/orders?orderNo=ORD/2026/0000001`, and the ops operations take the order number
+in the request body. The legacy identifier format dictates the shape of the API, which is a fair
+miniature of what working with one of these systems is like.
+
+Found by driving the documented endpoint by hand and getting nothing back.
+
+## DL-020 — The image build can trust an extra certificate authority
+
+`docker/ca/` is empty in the repository and the `Dockerfile` imports whatever it finds there into the
+JDK truststore before Maven runs. On an ordinary machine this does nothing.
+
+It exists because on a machine whose outbound HTTPS goes through a **TLS-terminating proxy** — a
+corporate MITM appliance, or a cloud dev container — the JVM inside the build container refuses to
+talk to Maven Central with `PKIX path building failed: unable to find valid certification path to
+requested target`. Without the hook, `docker compose up --build` simply cannot work in such an
+environment, and "one command" would be a claim rather than a fact.
+
+Certificate files are gitignored: they belong to one machine's proxy.
+
+The same environment forces two related choices:
+
+* **`network: host` on each compose build.** The proxy is bound to `127.0.0.1`, which a
+  bridge-network build container cannot reach. Building on the host's network works with or without a
+  proxy.
+* **No `apt-get` in the runtime image.** `apt-get update` over HTTP through a TLS-terminating proxy
+  fails with "the repository is not signed", so the runtime images install nothing — not even curl —
+  and compose health-checks with bash's `/dev/tcp` instead. The images are smaller for it.
+
+## DL-021 — Health checks speak HTTP through bash, not curl
+
+```yaml
+test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /actuator/health ...' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+```
+
+`CMD` rather than `CMD-SHELL`, because the image's `/bin/sh` is dash and `/dev/tcp` is a bash feature.
+
+This is a real health check, not a port probe: it reads the actuator's answer and looks for
+`"status":"UP"`, so a service whose database is unreachable reports unhealthy. It keeps the runtime
+images at "a JRE plus this project's jar" and sidesteps DL-020's apt problem.
+
+## DL-022 — The batch-exchange directories are created in the image
+
+The runtime image creates `/var/lib/legacy/batch-exchange/{outbox,inbox,archive}` owned by the
+non-root runtime user, even though a named volume is mounted over that path.
+
+That is the point: Docker seeds an empty named volume from whatever the image has at the mount point,
+**ownership included**. With the directories absent from the image the volume is created root-owned,
+and billing — running as uid 10001 — cannot write settlement files into it. The symptom is a 502 from
+`exportPaymentBatch` reading "could not write settlement file", which no test caught because the
+tests use a temporary directory the test JVM owns.
+
+Found by running `scripts/demo.sh` against `docker compose up`. Worth recording as the clearest example
+in this project of why green tests are not verification.
+
+## DL-023 — `maven-compiler-plugin` and `maven-failsafe-plugin` versions are pinned
+
+They were originally declared without versions, which works but makes the build irreproducible (Maven
+resolves "latest" each time) and breaks `dependency:go-offline`, which cannot pre-fetch a plugin whose
+version it does not know — noisy on every module and a real cost inside a Docker build, where the
+dependency layer is meant to be cached.

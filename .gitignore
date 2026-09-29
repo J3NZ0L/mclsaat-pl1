@@ -6,3 +6,7 @@ target/
 .vscode/
 /data/
 /batch-exchange/
+
+# Machine-specific CA certificates for the image build; see docker/ca/README.md
+docker/ca/*.crt
+docker/ca/*.pem

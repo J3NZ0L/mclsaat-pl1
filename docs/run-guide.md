@@ -55,6 +55,32 @@ docker compose down          # keeps the data
 docker compose down -v       # drops the databases and the batch volume too
 ```
 
+### Behind a TLS-terminating proxy
+
+If outbound HTTPS on this machine goes through a proxy that terminates TLS — a corporate MITM
+appliance, or a cloud dev container — the JVM inside the build container will refuse to talk to Maven
+Central:
+
+```
+PKIX path building failed: unable to find valid certification path to requested target
+```
+
+Drop the proxy's CA certificate into `docker/ca/` and build again. The `Dockerfile` imports whatever it
+finds there into the JDK truststore before Maven runs, and the directory is empty (and the step a
+no-op) on an ordinary machine.
+
+```bash
+cp /root/.ccr/ca-bundle.crt docker/ca/     # in a Claude Code cloud container
+docker compose up --build
+```
+
+See [`docker/ca/README.md`](../docker/ca/README.md). Certificate files are gitignored.
+
+Two related details, both already handled in `docker-compose.yml`: the builds use `network: host`
+(the proxy is bound to `127.0.0.1`, which a bridge-network build container cannot reach), and the
+runtime images install nothing at all — `apt-get` over such a proxy fails with "the repository is not
+signed", so the health checks talk HTTP through bash's `/dev/tcp` instead of using curl.
+
 ### If the Docker daemon is not running
 
 In a fresh cloud container it often is not:
@@ -62,6 +88,17 @@ In a fresh cloud container it often is not:
 ```bash
 nohup dockerd > /tmp/dockerd.log 2>&1 &
 sleep 8 && docker info
+```
+
+It has also been seen to die during a heavy build; restart it the same way and build again.
+
+### If a build fails on `load metadata` with HTTP 429
+
+Docker Hub rate-limiting. Pull the base images on their own, with a retry, then build:
+
+```bash
+for i in 1 2 3; do docker pull maven:3.9-eclipse-temurin-21 && break; sleep 15; done
+docker pull eclipse-temurin:21-jre-jammy
 ```
 
 ---
@@ -270,4 +307,7 @@ also creates fresh, fully repairable instances of each.
 | An order reaches `AWAITING_PROVISIONING` and stops | the platform's callback could not reach this service — check `PROVISIONING_CALLBACK_BASE_URL` |
 | An invoice stays `SETTLEMENT_PENDING` | either the clearing house is silenced (`GET /sim/clearing-house/config`) or no batch has been exported yet |
 | `BillingContractCopyTest` fails | billing's XSD changed; the failure message prints the `cp` to run |
+| Image build: `PKIX path building failed` | a TLS-terminating proxy; put its CA in `docker/ca/` (see above) |
+| Image build: `load metadata ... 429 Too Many Requests` | Docker Hub rate-limiting; pull the base images separately first |
+| `exportPaymentBatch` → 502 "could not write settlement file" | the `batch-exchange` volume is root-owned. It is seeded from the image, so recreate it: `docker compose down -v && docker compose up --build` |
 | "no space left on device" | delete build output: `mvn clean`, `docker system prune` |

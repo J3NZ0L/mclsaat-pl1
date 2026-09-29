@@ -23,6 +23,13 @@
     <flowable.version>7.2.0</flowable.version>
     <stripe-java.version>29.4.0</stripe-java.version>
     <jaxb2-maven-plugin.version>3.2.0</jaxb2-maven-plugin.version>
+    <!--
+      Pinned explicitly. Left unversioned, Maven resolves "the latest" on every build, which is both
+      irreproducible and noisy - `dependency:go-offline` cannot pre-fetch a plugin whose version it
+      does not know, and warns about it on every module.
+    -->
+    <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+    <maven-failsafe-plugin.version>3.5.2</maven-failsafe-plugin.version>
     <testcontainers.version>1.21.3</testcontainers.version>
 
     <!--
@@ -75,6 +82,16 @@
   <build>
     <pluginManagement>
       <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${maven-compiler-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>${maven-failsafe-plugin.version}</version>
+        </plugin>
         <plugin>
           <groupId>org.springframework.boot</groupId>
           <artifactId>spring-boot-maven-plugin</artifactId>

@@ -1,10 +1,11 @@
 # STATUS
 
-_Updated: 2026-09-29 (T08, T09)_
+_Updated: 2026-09-29 (T10, T12)_
 
 ## Where we are
-**T09 done** — all three subsystems, the canonical client layer and the ops console are implemented
-and verified running together. 145 tests green.
+**T10 and T12 done** — `docker compose up --build` brings the whole landscape up from scratch, and
+`scripts/demo.sh` drives the happy path and both failure branches against it, 21 checks, exit 0.
+145 tests green. T11 (the non-Docker path) is written but not yet verified.
 * `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
 * `billing-service`: 43 tests green (15 unit + 28 integration over a real HTTP port, with the
   Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer and the batch leg
@@ -51,9 +52,9 @@ and verified running together. 145 tests green.
 | T07 activation-service (Flowable) | done |
 | T08 subsystem-clients + mappers | done |
 | T09 ops-console | done |
-| T10 Docker compose | todo |
-| T11 non-Docker local path | todo |
-| T12 demo script | todo |
+| T10 Docker compose | done |
+| T11 non-Docker local path | written, NOT yet verified |
+| T12 demo script | done |
 | T13 docs | todo |
 | T14 CLAUDE.md + final pass | todo |
 
@@ -132,13 +133,37 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
   the repairable batch from the seeded one whose file was never written — and `reconcile` on the
   latter came back as HTTP 409 `BILLING_ILLEGAL_STATE`, which is the honest answer.
 
+* Docker verified from a clean slate (`docker compose down -v && docker compose up --build`): all six
+  containers healthy, then the full demo green — catalogue browse, subscription in ~4s, add-on growing
+  the allowance to 56320 MB, SOAP invoice query showing the 5990.01 artefact, Stripe payment,
+  fixed-width settlement file, clearing-house ACK, invoice `PAID`, then both failure branches
+  triggered, diagnosed through the ops console and repaired.
+
+## Findings from actually running it under Docker (each is now a decision-log entry)
+* **DL-020** The image build needs to trust the TLS-terminating proxy's CA, or Maven Central is
+  unreachable from the build container (`PKIX path building failed`). `docker/ca/` is the opt-in hook;
+  in this container run `cp /root/.ccr/ca-bundle.crt docker/ca/` first. Related: builds use
+  `network: host` (the proxy is on 127.0.0.1) and the runtime images install nothing, because
+  `apt-get` through such a proxy fails with "the repository is not signed".
+* **DL-021** Health checks therefore speak HTTP through bash's `/dev/tcp`, with `CMD` not `CMD-SHELL`
+  (the image's `/bin/sh` is dash).
+* **DL-022** The `batch-exchange` directories must exist **in the image**, owned by the runtime user.
+  Docker seeds an empty named volume from the image including ownership, so without them the volume is
+  root-owned and `exportPaymentBatch` returns 502 "could not write settlement file". No test caught
+  this — the tests use a temp directory the test JVM owns. The clearest example in this project of why
+  green tests are not verification.
+* **DL-019** Order numbers contain slashes, so they are query parameters and body fields, never path
+  variables.
+* Docker Hub rate-limits (429) on `load metadata`; pull base images separately with a retry first.
+* The Docker daemon died once mid-build; restart with `nohup dockerd &`.
+
 ## Half-done
-Nothing.
+**T11** `scripts/run-local.sh`, `scripts/stop-local.sh` and `scripts/create-local-databases.sh` are
+written but have not been run. They need a PostgreSQL server on the host.
 
 ## Next action
-T10: Docker — per-module Dockerfiles and a `docker-compose.yml` (postgres with three databases,
-stripe-mock, the four services, a shared batch-exchange volume), verified by actually running
-`docker compose up`.
+Verify T11: run `scripts/create-local-databases.sh` and `scripts/run-local.sh` against a local
+PostgreSQL, then `scripts/demo.sh` against that. Then T13 (docs refresh) and T14 (final pass).
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch
