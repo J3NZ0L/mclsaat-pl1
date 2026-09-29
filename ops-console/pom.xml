@@ -9,17 +9,38 @@
     <version>1.0.0-SNAPSHOT</version>
   </parent>
   <artifactId>ops-console</artifactId>
+  <name>Internal ops console</name>
+  <description>
+    The back-office view across all three subsystems. Its only job is the two deliberate failure
+    branches: find them, explain them, and repair them. It is the first consumer of
+    subsystem-clients, which is the layer phase 2's MCP servers are meant to sit on.
+  </description>
+
   <dependencies>
+    <dependency>
+      <groupId>hu.mclsaat.legacy</groupId>
+      <artifactId>subsystem-clients</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
+
   <build>
     <plugins>
       <plugin>

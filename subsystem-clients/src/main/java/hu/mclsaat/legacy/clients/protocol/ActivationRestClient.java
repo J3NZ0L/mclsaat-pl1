@@ -67,11 +67,17 @@ public class ActivationRestClient {
                 "stuck orders", olderThanMinutes);
         List<StuckOrderReport> reports = new ArrayList<>();
         if (body != null) {
-            body.forEach(entry -> reports.add(new StuckOrderReport(
-                    toOrderFromListEntry(entry.path("order")),
-                    entry.path("waitingForCallback").asBoolean(),
-                    entry.path("processRunning").asBoolean(),
-                    entry.path("repairableByCallback").asBoolean())));
+            body.forEach(entry -> {
+                boolean waiting = entry.path("waitingForCallback").asBoolean();
+                boolean running = entry.path("processRunning").asBoolean();
+                // the process-state flags live on the wrapper, not on the order, so they have to be
+                // pushed down - otherwise the order says "not waiting" while the report next to it
+                // says the order is repairable by a callback, which is a contradiction
+                reports.add(new StuckOrderReport(
+                        toOrderFromListEntry(entry.path("order"), running, waiting),
+                        waiting, running,
+                        entry.path("repairableByCallback").asBoolean()));
+            });
         }
         return reports;
     }
@@ -139,6 +145,11 @@ public class ActivationRestClient {
 
     /** A bare order, with no process-instance information available. */
     private CanonicalOrder toOrderFromListEntry(JsonNode order) {
+        return toOrderFromListEntry(order, false, false);
+    }
+
+    private CanonicalOrder toOrderFromListEntry(JsonNode order, boolean processRunning,
+                                               boolean waitingForCallback) {
         return new CanonicalOrder(
                 text(order, "orderNo"),
                 text(order, "changeType"),
@@ -149,7 +160,7 @@ public class ActivationRestClient {
                 text(order, "simIccid"),
                 text(order, "invoiceRef"),
                 text(order, "failureReason"),
-                false, false, null,
+                processRunning, waitingForCallback, null,
                 instant(order, "updatedTs"));
     }
 

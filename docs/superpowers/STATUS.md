@@ -1,10 +1,10 @@
 # STATUS
 
-_Updated: 2026-09-29 (T07)_
+_Updated: 2026-09-29 (T08, T09)_
 
 ## Where we are
-**T07 done** — all three subsystems are implemented and verified running together. `mvn verify` is
-green across the whole reactor (91 tests).
+**T09 done** — all three subsystems, the canonical client layer and the ops console are implemented
+and verified running together. 145 tests green.
 * `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
 * `billing-service`: 43 tests green (15 unit + 28 integration over a real HTTP port, with the
   Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer and the batch leg
@@ -49,8 +49,8 @@ green across the whole reactor (91 tests).
 | T05 stripe-sim + payment start | done |
 | T06 billing batch/EDI + ops SOAP ops | done |
 | T07 activation-service (Flowable) | done |
-| T08 subsystem-clients + mappers | in progress |
-| T09 ops-console | todo |
+| T08 subsystem-clients + mappers | done |
+| T09 ops-console | done |
 | T10 Docker compose | todo |
 | T11 non-Docker local path | todo |
 | T12 demo script | todo |
@@ -120,15 +120,25 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
   also drain leftover process instances between tests, retrying on optimistic-locking collisions,
   because the shared job executor otherwise invokes mocks in the middle of the next test.
 
+* `subsystem-clients`: 41 tests green (canonical value types, semantic mappers, and the
+  cross-subsystem correlation in `LandscapeDiagnostics` with the clients mocked).
+* `ops-console`: 13 tests green (`@WebMvcTest` over both controllers and the exception advice).
+* Verified by hand with **all five processes running**: `/ops/v1/diagnostics/overview` reported all
+  four interface styles reachable and found 3 stuck activations + 1 unconfirmed settlement.
+  `stuck-activations` correctly distinguished two repairable `STUCK_PROCESS` findings from the seeded
+  `ORPHANED_PENDING_SUBSCRIPTION` (`SUB-2026-000009`, no order behind it).
+  `force-provision` through the console drove a stuck order to `PROVISIONED` with an invoice.
+  `unconfirmed-batches` printed the fixed-width settlement records verbatim and correctly separated
+  the repairable batch from the seeded one whose file was never written — and `reconcile` on the
+  latter came back as HTTP 409 `BILLING_ILLEGAL_STATE`, which is the honest answer.
+
 ## Half-done
-**T08 `subsystem-clients`** — the canonical model, `SemanticMappers`, all four protocol clients and
-`LandscapeDiagnostics` are written and compile; `CanonicalTypesTest` and `SemanticMappersTest` are
-written but **not yet run**. Nothing wires them into a Spring context yet — that is T09.
+Nothing.
 
 ## Next action
-Run `mvn -pl subsystem-clients test`, fix whatever it finds, then T09: `ops-console` — define the
-client beans, expose `/ops/v1/diagnostics/**` and `/ops/v1/remediation/**` over
-`LandscapeDiagnostics`, and verify both failure branches through it.
+T10: Docker — per-module Dockerfiles and a `docker-compose.yml` (postgres with three databases,
+stripe-mock, the four services, a shared batch-exchange volume), verified by actually running
+`docker compose up`.
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch
