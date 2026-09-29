@@ -1,6 +1,8 @@
 package hu.mclsaat.legacy.billing.ws;
 
+import hu.mclsaat.legacy.billing.batch.PaymentBatchService;
 import hu.mclsaat.legacy.billing.domain.InvoiceRow;
+import hu.mclsaat.legacy.billing.domain.PaymentBatchRow;
 import hu.mclsaat.legacy.billing.payment.PaymentService;
 import hu.mclsaat.legacy.billing.service.BillingException;
 import hu.mclsaat.legacy.billing.service.InvoiceService;
@@ -8,6 +10,14 @@ import hu.mclsaat.legacy.billing.ws.gen.CreateInvoiceRequest;
 import hu.mclsaat.legacy.billing.ws.gen.CreateInvoiceResponse;
 import hu.mclsaat.legacy.billing.ws.gen.GetInvoicesRequest;
 import hu.mclsaat.legacy.billing.ws.gen.GetInvoicesResponse;
+import hu.mclsaat.legacy.billing.ws.gen.ExportPaymentBatchRequest;
+import hu.mclsaat.legacy.billing.ws.gen.ExportPaymentBatchResponse;
+import hu.mclsaat.legacy.billing.ws.gen.GetPaymentBatchRequest;
+import hu.mclsaat.legacy.billing.ws.gen.GetPaymentBatchResponse;
+import hu.mclsaat.legacy.billing.ws.gen.ListUnconfirmedBatchesRequest;
+import hu.mclsaat.legacy.billing.ws.gen.ListUnconfirmedBatchesResponse;
+import hu.mclsaat.legacy.billing.ws.gen.ReconcileBatchRequest;
+import hu.mclsaat.legacy.billing.ws.gen.ReconcileBatchResponse;
 import hu.mclsaat.legacy.billing.ws.gen.StartPaymentRequest;
 import hu.mclsaat.legacy.billing.ws.gen.StartPaymentResponse;
 import org.springframework.ws.server.endpoint.annotation.Endpoint;
@@ -25,11 +35,14 @@ public class BillingEndpoint {
 
     private final InvoiceService invoices;
     private final PaymentService payments;
+    private final PaymentBatchService batches;
     private final WsMapper mapper;
 
-    public BillingEndpoint(InvoiceService invoices, PaymentService payments, WsMapper mapper) {
+    public BillingEndpoint(InvoiceService invoices, PaymentService payments,
+                           PaymentBatchService batches, WsMapper mapper) {
         this.invoices = invoices;
         this.payments = payments;
+        this.batches = batches;
         this.mapper = mapper;
     }
 
@@ -120,6 +133,79 @@ public class BillingEndpoint {
         response.setAmountMinor(intent.amountMinor());
         response.setCurrency(intent.currency());
         response.setPaymentStatus(intent.status());
+        return response;
+    }
+
+    // ------------------------------------------------------------------------
+    // Ops-only operations. These are how failure branch B is found and repaired; no
+    // customer-facing channel reaches them.
+    // ------------------------------------------------------------------------
+
+    /**
+     * Cuts a settlement batch now, instead of waiting for the nightly export. Writes the
+     * fixed-width file to the outbox and hands it to the clearing house.
+     */
+    @PayloadRoot(namespace = NAMESPACE, localPart = "exportPaymentBatchRequest")
+    @ResponsePayload
+    public ExportPaymentBatchResponse exportPaymentBatch(
+            @RequestPayload ExportPaymentBatchRequest request) {
+        ExportPaymentBatchResponse response = new ExportPaymentBatchResponse();
+        var batch = batches.exportBatch();
+        if (batch.isEmpty()) {
+            response.setMessage("nothing to settle: no unbatched SETTLEMENT_PENDING invoices");
+            return response;
+        }
+        response.setBatch(mapper.toWs(batch.get()));
+        response.setMessage("batch " + batch.get().batchId() + " written to the outbox as "
+                + batch.get().fileName() + " and handed to the clearing house");
+        return response;
+    }
+
+    /**
+     * Batches that were handed over and never acknowledged. The billing half of failure branch B:
+     * from here it looks like money that left and never landed.
+     */
+    @PayloadRoot(namespace = NAMESPACE, localPart = "listUnconfirmedBatchesRequest")
+    @ResponsePayload
+    public ListUnconfirmedBatchesResponse listUnconfirmedBatches(
+            @RequestPayload ListUnconfirmedBatchesRequest request) {
+        ListUnconfirmedBatchesResponse response = new ListUnconfirmedBatchesResponse();
+        for (PaymentBatchRow row : batches.listUnconfirmed(request.getOlderThanMinutes())) {
+            response.getBatch().add(mapper.toWs(row));
+        }
+        return response;
+    }
+
+    @PayloadRoot(namespace = NAMESPACE, localPart = "getPaymentBatchRequest")
+    @ResponsePayload
+    public GetPaymentBatchResponse getPaymentBatch(@RequestPayload GetPaymentBatchRequest request) {
+        if (request.getBatchId() == null || request.getBatchId().isBlank()) {
+            throw new BillingException.BadRequest("batchId is required");
+        }
+        String batchId = request.getBatchId().trim();
+
+        GetPaymentBatchResponse response = new GetPaymentBatchResponse();
+        response.setBatch(mapper.toWs(batches.requireBatch(batchId)));
+        for (InvoiceRow invoice : batches.invoicesOf(batchId)) {
+            response.getInvoice().add(
+                    mapper.toWs(invoice, invoices.requireAccount(invoice.baNo()).customerRef()));
+        }
+        return response;
+    }
+
+    /** The ops remediation for failure branch B. See {@code PaymentBatchService#reconcile}. */
+    @PayloadRoot(namespace = NAMESPACE, localPart = "reconcileBatchRequest")
+    @ResponsePayload
+    public ReconcileBatchResponse reconcileBatch(@RequestPayload ReconcileBatchRequest request) {
+        if (request.getBatchId() == null || request.getBatchId().isBlank()) {
+            throw new BillingException.BadRequest("batchId is required");
+        }
+        var result = batches.reconcile(request.getBatchId().trim(), request.getMode());
+
+        ReconcileBatchResponse response = new ReconcileBatchResponse();
+        response.setBatch(mapper.toWs(result.batch()));
+        response.setInvoicesSettled(result.invoicesSettled());
+        response.setMessage(result.message());
         return response;
     }
 

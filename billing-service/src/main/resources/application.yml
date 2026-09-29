@@ -27,6 +27,20 @@ billing:
     # Authorization header with any valid looking testmode secret API key").
     api-key: ${STRIPE_API_KEY:sk_test_mclsaat123}
     api-base: ${STRIPE_API_BASE:http://localhost:12111}
+  batch:
+    # The clearing-house file exchange. Under docker compose these three live on a shared volume.
+    outbox-dir: ${BATCH_OUTBOX_DIR:batch-exchange/outbox}
+    inbox-dir: ${BATCH_INBOX_DIR:batch-exchange/inbox}
+    archive-dir: ${BATCH_ARCHIVE_DIR:batch-exchange/archive}
+    # How often the inbox is swept for acknowledgement files.
+    poll-interval-ms: ${BATCH_POLL_INTERVAL_MS:2000}
+    # The nightly-style export. Off by default so the demo decides when a batch is cut; a real
+    # deployment would run it on a cron.
+    auto-export-enabled: ${BATCH_AUTO_EXPORT:false}
+    auto-export-interval-ms: ${BATCH_AUTO_EXPORT_INTERVAL_MS:60000}
+    # A batch sent longer ago than this and still unacknowledged is reported to ops. Deliberately
+    # short so the failure branch is demonstrable in a two-minute demo rather than overnight.
+    unconfirmed-after-minutes: ${BATCH_UNCONFIRMED_AFTER_MINUTES:2}
 
 management:
   endpoints:

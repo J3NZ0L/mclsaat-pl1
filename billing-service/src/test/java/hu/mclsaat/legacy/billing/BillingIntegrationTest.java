@@ -38,5 +38,20 @@ public abstract class BillingIntegrationTest {
         registry.add("billing.stripe.api-base", () ->
                 "http://" + STRIPE_MOCK.getHost() + ":" + STRIPE_MOCK.getMappedPort(12111));
         registry.add("billing.stripe.api-key", () -> "sk_test_mclsaatit123");
+        registry.add("billing.batch.outbox-dir", () -> EXCHANGE_ROOT.resolve("outbox").toString());
+        registry.add("billing.batch.inbox-dir", () -> EXCHANGE_ROOT.resolve("inbox").toString());
+        registry.add("billing.batch.archive-dir", () -> EXCHANGE_ROOT.resolve("archive").toString());
+        registry.add("billing.batch.poll-interval-ms", () -> "500");
+    }
+
+    /** Real directories on a real filesystem; the file exchange is not stubbed out. */
+    static final java.nio.file.Path EXCHANGE_ROOT = createExchangeRoot();
+
+    private static java.nio.file.Path createExchangeRoot() {
+        try {
+            return java.nio.file.Files.createTempDirectory("billing-batch-exchange-");
+        } catch (java.io.IOException ex) {
+            throw new java.io.UncheckedIOException(ex);
+        }
     }
 }

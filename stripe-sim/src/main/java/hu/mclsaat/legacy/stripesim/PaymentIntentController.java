@@ -35,6 +35,8 @@ public class PaymentIntentController {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentIntentController.class);
 
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
     private final Map<String, Map<String, Object>> intents = new ConcurrentHashMap<>();
     private final AtomicLong sequence = new AtomicLong(1);
 
@@ -45,8 +47,11 @@ public class PaymentIntentController {
             @RequestParam Map<String, String> allParams,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
 
+        // The random suffix matters: without it a restart resets the counter and hands out an id
+        // that an earlier invoice is already carrying, so billing's lookup-by-payment-intent stops
+        // being unambiguous. Real Stripe ids never repeat, and neither should these.
         long n = sequence.getAndIncrement();
-        String id = "pi_sim_%011d".formatted(n);
+        String id = "pi_sim_%06d%s".formatted(n, randomSuffix());
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         allParams.forEach((key, value) -> {
@@ -93,6 +98,15 @@ public class PaymentIntentController {
         intent.put("amount_received", intent.get("amount"));
         log.info("confirmed {}", id);
         return ResponseEntity.ok(intent);
+    }
+
+    private static String randomSuffix() {
+        char[] alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".toCharArray();
+        StringBuilder suffix = new StringBuilder(10);
+        for (int i = 0; i < 10; i++) {
+            suffix.append(alphabet[RANDOM.nextInt(alphabet.length)]);
+        }
+        return suffix.toString();
     }
 
     /** Stripe's own error envelope, so SDK clients see a normal Stripe error. */

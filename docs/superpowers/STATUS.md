@@ -1,14 +1,18 @@
 # STATUS
 
-_Updated: 2026-09-29 (T05)_
+_Updated: 2026-09-29 (T06)_
 
 ## Where we are
-**T05 done** — subsystems 1 and 3 are implemented (bar the batch/EDI leg) and verified running.
+**T06 done** — subsystems 1 and 3 are complete and verified running. Subsystem 2 (activation) is next.
 * `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
-* `billing-service`: 27 tests green (8 unit + 19 integration over a real HTTP port, with the
-  Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer). A raw `curl`
-  SOAP POST against the running jar returns a proper `getInvoicesResponse`, and the generated
-  WSDL advertises all seven operations.
+* `billing-service`: 43 tests green (15 unit + 28 integration over a real HTTP port, with the
+  Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer and the batch leg
+  writing real files to a real temp directory). All seven SOAP operations are implemented.
+* Verified by hand against the running jars: the happy settlement path (export -> fixed-width
+  file in the outbox -> clearing house ACK -> background poller -> invoice `PAID`, batch `ACKED`,
+  ACK archived) **and** failure branch B (clearing house silenced -> batch strands in `SENT` with
+  its invoice in `SETTLEMENT_PENDING` -> `listUnconfirmedBatches` reports it -> `reconcileBatch`
+  with `RE_DRIVE_ACK` rebuilds the ACK from the sent file -> invoice `PAID`).
 * `stripe-sim` is a verified drop-in for `stripe/stripe-mock`: the same `startPayment` SOAP call
   through the same Stripe SDK returned `pi_sim_00000000001` / 1299000 minor units, `confirm`
   reported `succeeded`, and the webhook moved `2026/INV/000002` to `SETTLEMENT_PENDING`.
@@ -31,7 +35,7 @@ _Updated: 2026-09-29 (T05)_
 | T03 catalog-service | done |
 | T04 billing-service (schema + SOAP) | done |
 | T05 stripe-sim + payment start | done |
-| T06 billing batch/EDI + ops SOAP ops | todo |
+| T06 billing batch/EDI + ops SOAP ops | done |
 | T07 activation-service (Flowable) | todo |
 | T08 subsystem-clients + mappers | todo |
 | T09 ops-console | todo |
@@ -77,12 +81,20 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
   `sk_test_mclsaat123` works. The default in `application.yml` is already correct.
 * `pkill -f <pattern>` inside a Bash tool call can match the call's **own** command line (the
   pattern usually appears in the script text) and kill the shell, which surfaces as exit 144.
-  Use `scratchpad/stopjars.sh`, which selects PIDs with `ps` + `awk` instead.
+  Use `scratchpad/stopjars.sh`, which requires `comm == "java"` so the calling shell cannot match.
+* The fixed-width settlement format is pinned by offset in `BatchFileFormatTest`; the records are
+  HDR 61 / DTL 85 / TRL 24 bytes outbound and ACK 57 / RES 35 inbound. Money in the file is an
+  implied-two-decimals integer, which is the **fourth** representation of the same figure
+  (catalog fillér BIGINT -> activation decimal HUF -> billing NUMERIC(12,2) -> Stripe minor
+  units / batch-file implied decimals).
+* `stripe-sim` ids carry a random suffix. Without one a restart resets the counter and reissues an
+  id an older invoice already holds, which breaks billing's lookup-by-payment-intent.
 
 ## Next action
-T06: `billing-service` part 2 — the fixed-width batch outbox writer, the acknowledgement inbox
-poller, the clearing-house simulator with suppressible ACK, and the four remaining ops SOAP
-operations (`exportPaymentBatch`, `listUnconfirmedBatches`, `getPaymentBatch`, `reconcileBatch`).
+T07: `activation-service` — subsystem 2. Flowable 7 embedded, the BPMN process with its three
+`changeType` variants, delegates calling catalog REST and billing SOAP, the order table, the REST
+API, the message-correlation callback endpoint, the mocked provisioning system, and the boundary
+timer that produces the `STUCK` order of failure branch A.
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch
