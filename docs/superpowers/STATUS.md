@@ -1,9 +1,9 @@
 # STATUS
 
-_Updated: 2026-09-29 (T01)_
+_Updated: 2026-09-29 (T02)_
 
 ## Where we are
-**T01 done** — plan written, branch created. Nothing implemented yet.
+**T02 done** — Maven multi-module skeleton builds green (`mvn -DskipTests package`).
 
 ## Environment facts verified this session
 * Java 21.0.10, Maven 3.9.11, Docker 29.3.1 + compose v5.1.1, psql client 16.13.
@@ -19,7 +19,7 @@ _Updated: 2026-09-29 (T01)_
 | Task | State |
 | --- | --- |
 | T01 plan, branch, draft PR | done |
-| T02 Maven skeleton | todo |
+| T02 Maven skeleton | done |
 | T03 catalog-service | todo |
 | T04 billing-service (schema + SOAP) | todo |
 | T05 stripe-sim + payment start | todo |
@@ -33,11 +33,19 @@ _Updated: 2026-09-29 (T01)_
 | T13 docs | todo |
 | T14 CLAUDE.md + final pass | todo |
 
+## Stack decisions validated by actually running them
+* Spring Boot **3.5.6**, Java 21, Maven reactor with 6 modules.
+* Flowable **7.2.0** (`flowable-spring-boot-starter-process`) works with Spring Boot 3.5.6 —
+  smoke-tested a process with a waiting `intermediateCatchEvent` + `messageEventReceived`
+  correlation on H2 and it completed. This is the async/correlation mechanism subsystem 2 needs.
+* `com.stripe:stripe-java` **29.4.0**, Testcontainers **1.21.3** resolve from Maven Central.
+
 ## Half-done
-Nothing.
+Nothing. The module POMs currently carry only the dependencies needed so far; each task adds its own.
 
 ## Next action
-T02: create the Maven multi-module skeleton (parent POM + 6 modules) and get `mvn verify` green.
+T03: `catalog-service` — Flyway schema (`plan`, `subscriber`, `subscription`), seed data,
+JDBC-flavoured repositories, REST API, tests.
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch
