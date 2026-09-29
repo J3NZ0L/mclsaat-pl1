@@ -109,30 +109,44 @@ acknowledgement from the outbox file so the invoices become `PAID`.
 Each task ends with: build green, behaviour verified by actually running it, `STATUS.md` updated,
 commit + push.
 
-* **T01** Plan + STATUS + branch + draft PR. *(this task)*
-* **T02** Maven multi-module skeleton, parent POM, version pinning, `mvn -q verify` on empty modules.
-* **T03** `catalog-service`: Flyway schema (`plan`, `subscriber`, `subscription`), seed data,
+**All tasks are complete.** `docs/superpowers/STATUS.md` carries the live state and the findings from
+each one; `docs/decision-log.md` carries the decisions. Where the built system diverged from this plan,
+the divergence is recorded there rather than edited into the plan — the plan is what was intended, and
+it is more useful as a record if it stays that.
+
+Known divergences from this plan, all deliberate and all in the decision log:
+
+| Planned | Built | Why |
+| --- | --- | --- |
+| ~4 tables | 7 (4 core + 3 supporting) | DL-006 — each extra table is the vehicle for a required property |
+| activation reuses `subsystem-clients` | activation has its own clients | DL-009 — the duplication *is* the phase-2 "before" picture |
+| order numbers in paths | query parameters and request bodies | DL-019 — they contain slashes; Tomcat refuses |
+| — | `docker/ca/`, host-network builds, `/dev/tcp` health checks | DL-020, DL-021 — a TLS-terminating proxy makes the obvious approach impossible |
+
+* **T01** Plan + STATUS + branch + draft PR. *(done)*
+* **T02** *(done)* Maven multi-module skeleton, parent POM, version pinning, `mvn -q verify` on empty modules.
+* **T03** *(done)* `catalog-service`: Flyway schema (`plan`, `subscriber`, `subscription`), seed data,
   JDBC-flavoured repositories, REST API, tests.
-* **T04** `billing-service` part 1: Flyway schema (`billing_account`, `invoice`, `payment_batch`),
+* **T04** *(done)* `billing-service` part 1: Flyway schema (`billing_account`, `invoice`, `payment_batch`),
   seed data, contract-first XSD/WSDL + Spring-WS endpoint for `GetInvoices` / `CreateInvoice`, tests.
-* **T05** `stripe-sim` module + `StripeGateway` in billing (`StartPayment`, payment-succeeded
+* **T05** *(done)* `stripe-sim` module + `StripeGateway` in billing (`StartPayment`, payment-succeeded
   callback), wired to stripe-mock/stripe-sim, tests.
-* **T06** `billing-service` part 2: batch outbox writer (fixed-width), acknowledgement inbox
+* **T06** *(done)* `billing-service` part 2: batch outbox writer (fixed-width), acknowledgement inbox
   poller, clearing-house simulator with suppressible ACK, ops SOAP operations, tests.
-* **T07** `activation-service`: Flowable embedded, BPMN process (+ variants), delegates calling
+* **T07** *(done)* `activation-service`: Flowable embedded, BPMN process (+ variants), delegates calling
   catalog REST and billing SOAP, order table, REST API, message correlation endpoint, mocked
   provisioning system, boundary timer -> `STUCK`, process tests.
-* **T08** `subsystem-clients`: canonical model + semantic mappers + the four clients; mapper unit
+* **T08** *(done)* `subsystem-clients`: canonical model + semantic mappers + the four clients; mapper unit
   tests (the mismatch table is executable here).
-* **T09** `ops-console`: diagnostics + remediation endpoints for both failure branches, tests.
-* **T10** Docker: per-module Dockerfiles, `docker-compose.yml` (postgres, stripe-mock, 4 services,
+* **T09** *(done)* `ops-console`: diagnostics + remediation endpoints for both failure branches, tests.
+* **T10** *(done)* Docker: per-module Dockerfiles, `docker-compose.yml` (postgres, stripe-mock, 4 services,
   shared batch volume), one-command `docker compose up`; verified by actually running it.
-* **T11** Non-Docker local path: `scripts/run-local.sh` (embedded/looked-up Postgres + stripe-sim),
+* **T11** *(done)* Non-Docker local path: `scripts/run-local.sh` (embedded/looked-up Postgres + stripe-sim),
   verified by actually running it.
-* **T12** `scripts/demo.sh`: end-to-end happy path + both failure branches, run and captured.
-* **T13** Docs: `docs/architecture.md`, `docs/api-reference.md`, `docs/run-guide.md`,
+* **T12** *(done)* `scripts/demo.sh`: end-to-end happy path + both failure branches, run and captured.
+* **T13** *(done)* Docs: `docs/architecture.md`, `docs/api-reference.md`, `docs/run-guide.md`,
   `docs/decision-log.md`, `docs/semantic-mismatches.md`, `docs/phase2-seams.md`.
-* **T14** `CLAUDE.md` (incl. the do-not-modify list), README, final verification pass, PR ready.
+* **T14** *(done)* `CLAUDE.md` (incl. the do-not-modify list), README, final verification pass, PR ready.
 
 ## 5. Phase-2 seams (designed for, not built)
 

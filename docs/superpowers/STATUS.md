@@ -1,10 +1,17 @@
 # STATUS
 
-_Updated: 2026-09-29 (T11)_
+_Updated: 2026-09-29 (T14 — phase 1 complete)_
 
 ## Where we are
-**T11 done** — both start-up paths are verified against the **same** demo script, 21 checks and exit 0
-on each. 145 tests green.
+**Phase 1 is complete.** All fourteen tasks done, everything verified by actually running it.
+
+* `mvn clean verify` — **BUILD SUCCESS, 145 tests**, no warnings.
+* `docker compose down -v && docker compose up --build` from a clean slate — all six containers
+  healthy.
+* `scripts/demo.sh` — **21 checks, exit 0**, against the Docker stack *and* against the non-Docker
+  `scripts/run-local.sh` stack. Same script, same checks, either way.
+* The four read-only source documents are untouched since the user's own commits.
+* Every relative link in every Markdown file resolves.
 * `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
 * `billing-service`: 43 tests green (15 unit + 28 integration over a real HTTP port, with the
   Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer and the batch leg
@@ -54,8 +61,8 @@ on each. 145 tests green.
 | T10 Docker compose | done |
 | T11 non-Docker local path | done |
 | T12 demo script | done |
-| T13 docs | todo |
-| T14 CLAUDE.md + final pass | todo |
+| T13 docs | done |
+| T14 CLAUDE.md + final pass | done |
 
 ## Stack decisions validated by actually running them
 * Spring Boot **3.5.6**, Java 21, Maven reactor with 6 modules.
@@ -166,9 +173,19 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
 Nothing.
 
 ## Next action
-T13: refresh the docs against what was actually built (the API reference's ops section, the run guide's
-seed-data and troubleshooting tables), then T14: final full pass — `mvn verify`, both start-up paths,
-the demo, and mark the PR ready for review.
+Nothing is outstanding for phase 1. The pull request is ready for review:
+https://github.com/J3NZ0L/mclsaat-pl1/pull/1
+
+If you are a fresh session picking this up, the useful entry points are:
+
+* `CLAUDE.md` — conventions, the do-not-modify list, and the seven things that look like bugs and are
+  the subject matter.
+* `docs/semantic-mismatches.md` — the centrepiece: every data-model disagreement and the test pinning it.
+* `docs/decision-log.md` — 23 entries; read DL-006, DL-009, DL-014 and DL-022 first.
+* `docs/phase2-seams.md` — where MCP, the agents and UCP attach, and what they must not "fix".
+
+Phase 2 (MCP servers, agents, tokenomics) and phase 3 (Google UCP) are **not** in this repository and
+were never in scope for this task.
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch
