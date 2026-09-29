@@ -45,8 +45,14 @@ The clearing-house file exchange lives on a named volume shared with nothing els
 
 ```bash
 docker compose exec billing-service ls -l /var/lib/legacy/batch-exchange/outbox
-docker compose exec billing-service cat /var/lib/legacy/batch-exchange/outbox/PMT-*.txt
+docker compose exec billing-service cat /var/lib/legacy/batch-exchange/outbox/PMT-BATCH-*.txt
+docker compose exec billing-service cat /var/lib/legacy/batch-exchange/archive/ACK-BATCH-*.txt
 ```
+
+Those directories are created **in the image**, owned by the runtime user, because Docker seeds an empty
+named volume from the image including ownership. If you ever see `exportPaymentBatch` return 502
+"could not write settlement file", the volume predates that fix — `docker compose down -v` and build
+again.
 
 Stop and wipe:
 
@@ -105,11 +111,14 @@ docker pull eclipse-temurin:21-jre-jammy
 
 ## 2. Local, without Docker
 
-Needs Java 21, Maven 3.9+, and a PostgreSQL 16 server you can create databases on.
+Needs Java 21, Maven 3.9+, and a PostgreSQL 16 server you can create databases on. (In a Claude Code
+cloud container PostgreSQL is installed but not started: `pg_ctlcluster 16 main start`.)
 
 ```bash
-# one-off: create the three databases and their roles
+# one-off: create the three databases, their roles and the ops console's read-only grant
 scripts/create-local-databases.sh          # reads PGHOST/PGPORT/PGUSER, defaults to localhost:5432
+# ...or, where only the postgres unix socket accepts a superuser:
+#   su postgres -c "PGHOST=/var/run/postgresql scripts/create-local-databases.sh"
 
 # build and run everything, including stripe-sim instead of stripe-mock
 scripts/run-local.sh
@@ -162,6 +171,9 @@ What it does, in order:
     stranded in `SENT`, detect it through the ops console (SOAP plus the outbox files), then
     `reconcileBatch` with `RE_DRIVE_ACK` and watch the invoice reach `PAID`.
 
+Every step is a check, and the script exits non-zero if any of them fails — so it doubles as an
+end-to-end test of the running system. It passes 21 checks against either start-up path.
+
 Run one part only:
 
 ```bash
@@ -169,6 +181,8 @@ scripts/demo.sh happy        # steps 1-8
 scripts/demo.sh stuck        # step 9
 scripts/demo.sh batch        # step 10
 ```
+
+Point it somewhere else with `CATALOG_URL`, `ACTIVATION_URL`, `BILLING_URL`, `OPS_URL`, `STRIPE_URL`.
 
 ---
 

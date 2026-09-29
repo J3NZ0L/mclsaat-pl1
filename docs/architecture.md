@@ -203,7 +203,7 @@ exactly this layer, which is why it exists now rather than being invented later.
 | - | --- | --- | --- | --- |
 | 1 | Browse plans and tariffs | catalog | REST | `GET /api/v1/plans` |
 | 2 | Start a subscription (happy path) | activation | REST | `POST /activation/v1/orders` |
-| 3 | Poll activation/order status | activation | REST | `GET /activation/v1/orders/{orderNo}` |
+| 3 | Poll activation/order status | activation | REST | `GET /activation/v1/orders?orderNo=…` |
 | 4 | Plan change / add-on | activation | REST | same endpoint, `changeType` variant |
 | 5 | Invoice query + start payment | billing | SOAP | `getInvoices`, `startPayment` |
 | 6 | Detect and resolve the failure branches | ops | REST (internal) | `/ops/v1/**` |
@@ -223,9 +223,10 @@ catalog has no word for "stuck"; activation has no visibility of the catalog's r
 (`SUB-2026-000009`) so the inconsistency is findable from a cold start.
 *Detect* `GET /ops/v1/diagnostics/stuck-activations` — correlates activation's waiting instances
 (REST) with the catalog's stale `PA` rows (**direct JDBC**). Neither source alone is enough.
-*Resolve* `POST /ops/v1/remediation/activation/{orderNo}/force-provision` injects the missing
-correlated message with a hand-supplied ICCID and the process completes normally; or `.../cancel`
-gives up and rolls the subscription back.
+*Resolve* `POST /ops/v1/remediation/activation/force-provision` injects the missing correlated message
+with a hand-supplied ICCID and the process completes normally; or `.../cancel` gives up, irreversibly.
+The diagnosis distinguishes a parked process from an orphaned order and from a stale catalog row with
+no order behind it, because only the first admits the cheap remedy.
 
 ### B. Unconfirmed billing batch
 Stripe took the customer's money, the settlement batch went out, and the acknowledgement never came.
@@ -235,7 +236,7 @@ activation can represent.
 *Trigger* `POST /sim/clearing-house/config {"ackEnabled": false}`. A stranded batch
 (`BATCH-20260925-001`) is also seeded.
 *Detect* `GET /ops/v1/diagnostics/unconfirmed-batches`, over SOAP, plus reading the outbox files.
-*Resolve* `POST /ops/v1/remediation/billing/batches/{batchId}/reconcile` in one of two modes:
+*Resolve* `POST /ops/v1/remediation/billing/reconcile` in one of two modes:
 `RESEND` hands the file over again and waits for a real acknowledgement; `RE_DRIVE_ACK` rebuilds the
 acknowledgement from the file that was actually sent, for when the money demonstrably moved and the
 confirmation is never coming. Both are safe to repeat.

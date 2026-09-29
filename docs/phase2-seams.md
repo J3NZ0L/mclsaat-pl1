@@ -37,7 +37,7 @@ mapping is mechanical:
 | --- | --- | --- | --- |
 | 1. Browse plans | catalog REST `GET /api/v1/plans` | `catalog.browse_plans` | customer |
 | 2. Start subscription | activation REST `POST /orders` | `subscription.start` | customer |
-| 3. Poll order status | activation REST `GET /orders/{orderNo}` | `subscription.order_status` | customer |
+| 3. Poll order status | activation REST `GET /orders?orderNo=…` | `subscription.order_status` | customer |
 | 4. Plan change / add-on | same endpoint, `changeType` variant | `subscription.change` | customer |
 | 5. Invoice query + pay | billing SOAP `getInvoices`, `startPayment` | `billing.list_invoices`, `billing.start_payment` | customer |
 | 6. Detect & resolve | ops console `/ops/v1/**` | `ops.diagnose`, `ops.remediate` | **ops only** |

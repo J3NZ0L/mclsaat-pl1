@@ -84,8 +84,10 @@ lowercase (`mob.voice.0010`), `requestedStartDate` is `"yyyyMMdd"`, `msisdn` car
 Errors: same JSON shape as the catalog, plus `DOWNSTREAM_FAILURE` → 502 when a neighbouring
 subsystem refuses or cannot be reached.
 
-**Order numbers contain slashes** (`ORD/2026/0000001`), so they must be percent-encoded into a path:
-`ORD%2F2026%2F0000001`.
+**Order numbers contain slashes** (`ORD/2026/0000001`), which is why none of them appears in a path.
+Tomcat rejects an encoded `%2F` by default, and configuring it to decode splits the order number into
+three path segments that no longer match the mapping. So the order number travels as a query parameter
+on reads and in the body on writes. See `docs/decision-log.md` DL-019.
 
 ### `POST /activation/v1/orders`
 Services 2 and 4 — one endpoint, three variants of the same BPMN process.
@@ -116,7 +118,7 @@ Services 2 and 4 — one endpoint, three variants of the same BPMN process.
 Returns **202 Accepted** with the order in `RECEIVED`. It cannot do better: `validateOrder` is
 `flowable:async`, so nothing has run yet and `monthlyFeeHuf` is still null.
 
-### `GET /activation/v1/orders/{orderNo}`
+### `GET /activation/v1/orders?orderNo=ORD/2026/0000001`
 Service 3. The reason polling is a service and not a convenience.
 
 ```json
@@ -141,7 +143,8 @@ reachable from `AWAITING_PROVISIONING` (and recoverable back to `PROVISIONED`), 
 `FAILED` and `CANCELLED`.
 
 ### `GET /activation/v1/orders?customerRef=42`
-Every order for one customer, newest first.
+Every order for one customer, newest first. The two forms are the same endpoint, selected by which
+parameter you pass.
 
 ### `POST /activation/v1/callbacks/provisioning`
 What the network platform calls. This is the asynchronous seam of the whole system: the HTTP request
@@ -159,8 +162,8 @@ been parked ever since.
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET` | `/stuck-orders?olderThanMinutes=1` | orders waiting or reported `STUCK`; each carries `repairableByCallback` |
-| `POST` | `/orders/{orderNo}/force-provision` | `{simIccid?}` — injects the callback the platform never sent. The *same* correlation the platform performs |
-| `POST` | `/orders/{orderNo}/cancel` | `{reason?}` — gives up. **Not reversible**: the process instance and its subscription are deleted |
+| `POST` | `/orders/force-provision` | `{orderNo, simIccid?}` — injects the callback the platform never sent. The *same* correlation the platform performs |
+| `POST` | `/orders/cancel` | `{orderNo, reason?}` — gives up. **Not reversible**: the process instance and its message subscription are deleted |
 | `GET`/`POST` | `/provisioning-platform` | `{callbacksEnabled: bool}` — the global off switch for the simulated platform |
 
 ---
@@ -320,16 +323,34 @@ protocol to do it — which is the point of the module existing.
 | `GET` | `/ops/v1/diagnostics/stuck-activations` | activation over **REST** + catalog over **direct JDBC** |
 | `GET` | `/ops/v1/diagnostics/unconfirmed-batches` | billing over **SOAP** + the outbox **files** |
 | `GET` | `/ops/v1/diagnostics/overview` | all three |
-| `POST` | `/ops/v1/remediation/activation/{orderNo}/force-provision` | activation over REST |
-| `POST` | `/ops/v1/remediation/activation/{orderNo}/cancel` | activation over REST |
-| `POST` | `/ops/v1/remediation/billing/batches/{batchId}/reconcile` | billing over SOAP |
+| `POST` | `/ops/v1/remediation/activation/force-provision` | activation over REST — `{orderNo, simIccid?}` |
+| `POST` | `/ops/v1/remediation/activation/cancel` | activation over REST — `{orderNo, reason?}`. **Not reversible** |
+| `POST` | `/ops/v1/remediation/billing/reconcile` | billing over SOAP — `{batchId, mode?}`, mode defaults to `RE_DRIVE_ACK` |
+| `POST` | `/ops/v1/remediation/billing/export-batch` | billing over SOAP — cuts a settlement batch now |
+| `POST` | `/ops/v1/remediation/fault-injection/provisioning-callbacks` | activation over REST — `{callbacksEnabled}`, the global off switch |
 
 `stuck-activations` is the interesting one: neither source alone is enough. Activation knows its
 process instance is parked; the catalog knows it has a subscription that never went live. The ops
 console joins them by hand, across an identifier-space mismatch, because nothing else in the system
 can.
 
-See `ops-console`'s own endpoint documentation for exact response shapes.
+Each finding carries both halves side by side, plus a `diagnosis` in prose and a `suggestedRemedy`,
+and a `category` that decides which remedy applies:
+
+| Category | What it means | Remedy |
+| --- | --- | --- |
+| `STUCK_PROCESS` | a live process instance is parked and the catalog row is pending | `force-provision`, if `repairableByCallback` |
+| `ORPHANED_STUCK_ORDER` | the order was reported stuck but its process instance is gone | `cancel` only |
+| `ORPHANED_PENDING_SUBSCRIPTION` | a stale catalog row with no activation order behind it (the seeded `SUB-2026-000009`) | terminate in the catalog and re-order |
+
+`unconfirmed-batches` likewise returns the settlement file's records verbatim in
+`settlementFileLines`, and `settlementFilePresent` is what decides whether a remedy exists at all: you
+cannot rebuild an acknowledgement from a file that was never written, and the console says so rather
+than guessing. Attempting it returns **409** `BILLING_ILLEGAL_STATE`.
+
+Errors: one shape — `{"code", "message"}` — regardless of which of the three unrelated downstream
+error models produced it. `BILLING_NOT_FOUND` → 404, `BILLING_ILLEGAL_STATE` → 409,
+`ACTIVATION_FAILURE` → 502 or 503, `CATALOG_JDBC_FAILURE` → 503.
 
 ---
 
