@@ -10,6 +10,12 @@
   </parent>
   <artifactId>subsystem-clients</artifactId>
   <name>Subsystem client layer (canonical model + semantic mappers)</name>
+  <description>
+    One canonical vocabulary for the whole landscape, the mappers that translate each subsystem's
+    dialect into it, and one client per protocol. This is the layer the phase-2 MCP servers and the
+    UCP adapter are meant to sit on; ops-console is its first consumer.
+  </description>
+
   <dependencies>
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -32,9 +38,47 @@
       <artifactId>postgresql</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.glassfish.jaxb</groupId>
+      <artifactId>jaxb-runtime</artifactId>
+    </dependency>
+
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Generates the billing SOAP stubs straight from billing's own XSD, by relative path.
+
+        This is the opposite choice from activation-service, which keeps a checked-in copy (see
+        docs/decision-log.md DL-010) - and deliberately so. activation-service models an integration
+        team that was handed a WSDL and lives with the drift risk; this module is the canonical layer
+        and has exactly one source of truth. The cost is that subsystem-clients only builds inside
+        the reactor, which is fine for a library nothing outside this repository consumes.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>jaxb2-maven-plugin</artifactId>
+        <version>${jaxb2-maven-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>generate-billing-soap-types</id>
+            <goals><goal>xjc</goal></goals>
+          </execution>
+        </executions>
+        <configuration>
+          <sources>
+            <source>../billing-service/src/main/resources/xsd/billing-v1.xsd</source>
+          </sources>
+          <packageName>hu.mclsaat.legacy.clients.billing.gen</packageName>
+          <clearOutputDir>false</clearOutputDir>
+          <staleFileDirectory>${project.build.directory}/jaxb2-staleness</staleFileDirectory>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>

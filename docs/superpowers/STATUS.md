@@ -1,9 +1,10 @@
 # STATUS
 
-_Updated: 2026-09-29 (T06)_
+_Updated: 2026-09-29 (T07)_
 
 ## Where we are
-**T06 done** — subsystems 1 and 3 are complete and verified running. Subsystem 2 (activation) is next.
+**T07 done** — all three subsystems are implemented and verified running together. `mvn verify` is
+green across the whole reactor (91 tests).
 * `catalog-service`: 17 integration tests green; REST and direct psql both read the same rows.
 * `billing-service`: 43 tests green (15 unit + 28 integration over a real HTTP port, with the
   Stripe leg going through the real SDK to a `stripe/stripe-mock` Testcontainer and the batch leg
@@ -13,6 +14,17 @@ _Updated: 2026-09-29 (T06)_
   ACK archived) **and** failure branch B (clearing house silenced -> batch strands in `SENT` with
   its invoice in `SETTLEMENT_PENDING` -> `listUnconfirmedBatches` reports it -> `reconcileBatch`
   with `RE_DRIVE_ACK` rebuilds the ACK from the sent file -> invoice `PAID`).
+* `activation-service`: 31 tests green (15 unit + 16 Flowable integration on real PostgreSQL with a
+  live job executor). Verified by hand with **all four services running together**:
+  * happy path: `POST /orders` -> `RECEIVED` -> `AWAITING_PROVISIONING` -> callback ->
+    `PROVISIONED` in ~4s, with every translation landing correctly — `customerRef 43` ->
+    catalog `00000043` -> billing `BA-00043`; `mob.voice.0050` -> `MOB-VOICE-0050`;
+    `+36209876543` -> `36209876543`; 50.000 GB -> 51200 MB; `20260929` -> `2026-09-29`;
+    gross 9990.00 -> net 7866.14 + VAT 2123.86.
+  * add-on variant: base subscription's effective allowance went 51200 -> 56320 MB.
+  * failure branch A: `simulateStuck` order went `STUCK` with the wait intact, catalog left in `PA`,
+    ops `stuck-orders` reported it as `repairable=true`, `force-provision` finished it normally with
+    the hand-supplied ICCID, catalog went `AC`, invoice issued.
 * `stripe-sim` is a verified drop-in for `stripe/stripe-mock`: the same `startPayment` SOAP call
   through the same Stripe SDK returned `pi_sim_00000000001` / 1299000 minor units, `confirm`
   reported `succeeded`, and the webhook moved `2026/INV/000002` to `SETTLEMENT_PENDING`.
@@ -36,8 +48,8 @@ _Updated: 2026-09-29 (T06)_
 | T04 billing-service (schema + SOAP) | done |
 | T05 stripe-sim + payment start | done |
 | T06 billing batch/EDI + ops SOAP ops | done |
-| T07 activation-service (Flowable) | todo |
-| T08 subsystem-clients + mappers | todo |
+| T07 activation-service (Flowable) | done |
+| T08 subsystem-clients + mappers | in progress |
 | T09 ops-console | todo |
 | T10 Docker compose | todo |
 | T11 non-Docker local path | todo |
@@ -89,12 +101,34 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
   units / batch-file implied decimals).
 * `stripe-sim` ids carry a random suffix. Without one a restart resets the counter and reissues an
   id an older invoice already holds, which breaks billing's lookup-by-payment-intent.
+* **Order numbers contain slashes**, so they cannot be path variables: Tomcat rejects an encoded
+  `%2F` by default and decoding it splits the order number into three path segments. Activation
+  therefore takes `orderNo` as a query parameter (`GET /activation/v1/orders?orderNo=...`) and in the
+  body for the ops operations.
+* `ExecutionQuery.processInstanceBusinessKey(...)` only matches the process instance's **own**
+  execution row. The message subscription sits on a child execution inside the sub-process, so
+  looking it up by business key silently reports that nothing is waiting. Resolve the instance first,
+  then query by `processInstanceId`.
+* An unhandled `BpmnError` thrown from an async service task **rolls the transaction back**, taking
+  any status the delegate wrote with it. The rejection path therefore has an error boundary event and
+  a separate `markRejected` delegate.
+* Flowable polls for due timer jobs and sleeps ~10s between polls by default, so a `PT5S` timer fired
+  at t+13s. `flowable.process.async.executor.default-timer-job-acquire-wait-time: PT1S` brings it to
+  ~t+6s, which a two-minute demo needs.
+* The Flowable integration tests use `DEFINED_PORT` (18082), not `RANDOM_PORT`, because the simulated
+  provisioning platform calls back over real HTTP and needs a URL before the context starts. They
+  also drain leftover process instances between tests, retrying on optimistic-locking collisions,
+  because the shared job executor otherwise invokes mocks in the middle of the next test.
+
+## Half-done
+**T08 `subsystem-clients`** — the canonical model, `SemanticMappers`, all four protocol clients and
+`LandscapeDiagnostics` are written and compile; `CanonicalTypesTest` and `SemanticMappersTest` are
+written but **not yet run**. Nothing wires them into a Spring context yet — that is T09.
 
 ## Next action
-T07: `activation-service` — subsystem 2. Flowable 7 embedded, the BPMN process with its three
-`changeType` variants, delegates calling catalog REST and billing SOAP, the order table, the REST
-API, the message-correlation callback endpoint, the mocked provisioning system, and the boundary
-timer that produces the `STUCK` order of failure branch A.
+Run `mvn -pl subsystem-clients test`, fix whatever it finds, then T09: `ops-console` — define the
+client beans, expose `/ops/v1/diagnostics/**` and `/ops/v1/remediation/**` over
+`LandscapeDiagnostics`, and verify both failure branches through it.
 
 ## Branch note
 Work happens on `feat/legacy-system` (as requested). The harness-designated branch

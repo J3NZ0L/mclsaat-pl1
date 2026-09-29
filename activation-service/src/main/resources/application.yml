@@ -1,0 +1,74 @@
+spring:
+  application:
+    name: activation-service
+  datasource:
+    # Flowable's engine tables and activation's own schema share this database. Neither the catalog
+    # nor billing can see into it, and it cannot see into theirs.
+    url: ${ACTIVATION_DB_URL:jdbc:postgresql://localhost:5432/flowabledb}
+    username: ${ACTIVATION_DB_USER:activation_app}
+    password: ${ACTIVATION_DB_PASSWORD:activation_app}
+  flyway:
+    # Flyway owns the activation schema; Flowable creates and upgrades its own tables in public.
+    enabled: true
+    schemas: activation
+    default-schema: activation
+    create-schemas: true
+
+server:
+  port: ${ACTIVATION_PORT:8082}
+
+flowable:
+  # Embedded engine. No separate Flowable deployment, no Flowable REST app, no Flowable UI.
+  database-schema-update: true
+  process:
+    definition-cache-limit: 64
+    async:
+      executor:
+        # Flowable does not fire a timer the instant it is due: it polls for due jobs and sleeps
+        # between polls, by default for ten seconds. That is right in production and useless in a
+        # demo - a PT5S provisioning timeout was observed firing at t+12s, because the timer became
+        # due at t+5s and the next acquisition cycle came round seven seconds later.
+        #
+        # One second makes a due timer fire within about a second, at the cost of a query per second
+        # against the job tables. At this scale that is nothing; a real deployment puts the defaults
+        # back. Note this only changes how promptly a due job is NOTICED - the timer durations
+        # themselves are process variables (activation.provisioning.timeout).
+        default-timer-job-acquire-wait-time: ${FLOWABLE_TIMER_ACQUIRE_WAIT:PT1S}
+        default-async-job-acquire-wait-time: ${FLOWABLE_JOB_ACQUIRE_WAIT:PT1S}
+  # The async executor is what makes flowable:async tasks and the boundary timer work at all.
+  async-executor-activate: true
+  history-level: audit
+  # Stops Flowable from installing its own users and IDM tables: this system has no authentication.
+  idm:
+    enabled: false
+
+activation:
+  catalog:
+    base-url: ${CATALOG_BASE_URL:http://localhost:8081}
+  billing:
+    endpoint: ${BILLING_SOAP_ENDPOINT:http://localhost:8083/ws}
+  provisioning:
+    # How long the process waits for the provisioning callback before reporting the order stuck.
+    # Deliberately short: a production SLA would be hours, and a demo cannot wait hours.
+    timeout: ${PROVISIONING_TIMEOUT:PT45S}
+    # How long the simulated platform takes to call back when it is behaving.
+    callback-delay: ${PROVISIONING_CALLBACK_DELAY:PT2S}
+    # The simulated platform calls back over HTTP like a real external system would, so it needs a
+    # URL for this service. Under docker compose that is the service name.
+    callback-base-url: ${PROVISIONING_CALLBACK_BASE_URL:http://localhost:8082}
+    callback-path: /activation/v1/callbacks/provisioning
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    hu.mclsaat.legacy: INFO
+    # Flowable is chatty about its job executor at DEBUG; INFO is enough to see the process move.
+    org.flowable: INFO
