@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: ops-console
+  # No spring.datasource here on purpose. The only database this service touches is the CATALOG's,
+  # and it is declared explicitly in OpsClientConfiguration as a second, read-only pool - so that
+  # reaching into another subsystem's schema is a visible decision rather than the framework default.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+
+server:
+  port: ${OPS_PORT:8080}
+
+ops:
+  catalog:
+    # Direct JDBC into subsystem 1's schema. There is no API in this path.
+    db-url: ${CATALOG_DB_URL:jdbc:postgresql://localhost:5432/catalogdb}
+    db-user: ${CATALOG_DB_USER:catalog_app}
+    db-password: ${CATALOG_DB_PASSWORD:catalog_app}
+  activation:
+    base-url: ${ACTIVATION_BASE_URL:http://localhost:8082}
+  billing:
+    soap-endpoint: ${BILLING_SOAP_ENDPOINT:http://localhost:8083/ws}
+    # Read-only. Billing owns these files; ops looks at them to see what was actually sent.
+    outbox-dir: ${BATCH_OUTBOX_DIR:batch-exchange/outbox}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    hu.mclsaat.legacy: INFO

@@ -1,0 +1,212 @@
+# The whole landscape, in one command:
+#
+#     docker compose up --build
+#
+# Five JVMs, one PostgreSQL server with three separate databases, the official Stripe mock, and a
+# shared volume that stands in for the clearing house's SFTP drop. Health checks are wired so that
+# when `up` settles, everything really is ready.
+#
+# Two things in here look odd and are deliberate:
+#
+#   network: host on each build    The image build needs Maven Central, and on a machine where
+#                                  outbound HTTPS goes through a proxy bound to localhost (a cloud
+#                                  dev container, for instance) a bridge-network build cannot see it.
+#                                  Building on the host's network works either way, and the proxy
+#                                  variables are passed through when set and ignored when not.
+#
+#   /dev/tcp health checks         The service images contain a JRE and this project's jar, nothing
+#                                  else - no curl, no wget. bash can speak enough HTTP to ask the
+#                                  actuator whether it is UP, which keeps the images clean and also
+#                                  sidesteps apt-get failing behind a TLS-terminating proxy.
+
+name: mclsaat-legacy
+
+x-build: &build-from-reactor
+  context: .
+  dockerfile: Dockerfile
+  network: host
+  args:
+    http_proxy: ${http_proxy:-}
+    https_proxy: ${https_proxy:-}
+    no_proxy: ${no_proxy:-}
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      # Runs once, on an empty data directory: creates the three databases, their three logins, and
+      # the ops console's read-only grant into the catalog's schema.
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # The official Stripe mock. Answers with canned, correctly shaped data and remembers nothing, which
+  # is enough for creating PaymentIntents. The stripe-sim module is the stateful local alternative;
+  # see docs/decision-log.md DL-011.
+  stripe-mock:
+    image: stripe/stripe-mock:latest
+    ports:
+      - "12111:12111"
+
+  # ---------------------------------------------------------------- subsystem 1
+  catalog-service:
+    build:
+      <<: *build-from-reactor
+      args:
+        MODULE: catalog-service
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CATALOG_PORT: 8081
+      CATALOG_DB_URL: jdbc:postgresql://postgres:5432/catalogdb
+      CATALOG_DB_USER: catalog_app
+      CATALOG_DB_PASSWORD: catalog_app
+    ports:
+      - "8081:8081"
+    healthcheck:
+      # CMD, not CMD-SHELL: the container's /bin/sh is dash, and /dev/tcp is a bash feature.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ---------------------------------------------------------------- subsystem 3
+  # Started before activation, because activation issues invoices through it.
+  billing-service:
+    build:
+      <<: *build-from-reactor
+      args:
+        MODULE: billing-service
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BILLING_PORT: 8083
+      BILLING_DB_URL: jdbc:postgresql://postgres:5432/billingdb
+      BILLING_DB_USER: billing_app
+      BILLING_DB_PASSWORD: billing_app
+      # The key has to be alphanumeric after the sk_test_ prefix: stripe-mock validates its shape.
+      STRIPE_API_KEY: sk_test_mclsaat123
+      STRIPE_API_BASE: http://stripe-mock:12111
+      BATCH_OUTBOX_DIR: /var/lib/legacy/batch-exchange/outbox
+      BATCH_INBOX_DIR: /var/lib/legacy/batch-exchange/inbox
+      BATCH_ARCHIVE_DIR: /var/lib/legacy/batch-exchange/archive
+      BATCH_POLL_INTERVAL_MS: 2000
+      # A batch sent more than two minutes ago and still unacknowledged is reported to ops.
+      # Deliberately short, so the failure branch is demonstrable in a two-minute demo.
+      BATCH_UNCONFIRMED_AFTER_MINUTES: 2
+    ports:
+      - "8083:8083"
+    volumes:
+      - batch-exchange:/var/lib/legacy/batch-exchange
+    healthcheck:
+      # CMD, not CMD-SHELL: the container's /bin/sh is dash, and /dev/tcp is a bash feature.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8083 && printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ---------------------------------------------------------------- subsystem 2
+  activation-service:
+    build:
+      <<: *build-from-reactor
+      args:
+        MODULE: activation-service
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      billing-service:
+        condition: service_healthy
+    environment:
+      ACTIVATION_PORT: 8082
+      ACTIVATION_DB_URL: jdbc:postgresql://postgres:5432/flowabledb
+      ACTIVATION_DB_USER: activation_app
+      ACTIVATION_DB_PASSWORD: activation_app
+      CATALOG_BASE_URL: http://catalog-service:8081
+      BILLING_SOAP_ENDPOINT: http://billing-service:8083/ws
+      # The provisioning SLA. A production one would be hours; this has to fit in a demo.
+      PROVISIONING_TIMEOUT: PT20S
+      PROVISIONING_CALLBACK_DELAY: PT2S
+      # The simulated platform calls back over real HTTP, so it needs this service's own address.
+      PROVISIONING_CALLBACK_BASE_URL: http://activation-service:8082
+    ports:
+      - "8082:8082"
+    healthcheck:
+      # CMD, not CMD-SHELL: the container's /bin/sh is dash, and /dev/tcp is a bash feature.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8082 && printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  # ------------------------------------------------------------- the ops console
+  ops-console:
+    build:
+      <<: *build-from-reactor
+      args:
+        MODULE: ops-console
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      billing-service:
+        condition: service_healthy
+      activation-service:
+        condition: service_healthy
+    environment:
+      OPS_PORT: 8080
+      # Direct JDBC into subsystem 1's schema, with the read-only login created by postgres-init.sql.
+      # This is the fourth interface style, and the grant is what makes it honest.
+      CATALOG_DB_URL: jdbc:postgresql://postgres:5432/catalogdb
+      CATALOG_DB_USER: ops_reader
+      CATALOG_DB_PASSWORD: ops_reader
+      ACTIVATION_BASE_URL: http://activation-service:8082
+      BILLING_SOAP_ENDPOINT: http://billing-service:8083/ws
+      BATCH_OUTBOX_DIR: /var/lib/legacy/batch-exchange/outbox
+    ports:
+      - "8080:8080"
+    volumes:
+      # Read-only: billing owns these files. Ops looks at them to see what was actually sent.
+      - batch-exchange:/var/lib/legacy/batch-exchange:ro
+    healthcheck:
+      # CMD, not CMD-SHELL: the container's /bin/sh is dash, and /dev/tcp is a bash feature.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  # Stands in for the clearing house's file drop. Written by billing, read by ops.
+  batch-exchange:

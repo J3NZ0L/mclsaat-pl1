@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Subsystem 2: the subscription activation process.
+
+  One process definition covers all three variants the business asked for - a new subscription, a
+  plan change, and an add-on purchase - because they are the same process with a different middle.
+  The exclusive gateway after validation is the only place they differ.
+
+  Two things here are the reason this subsystem exists at all:
+
+  1. ASYNCHRONY. `validateOrder` and `issueInvoice` are flowable:async, so starting an order returns
+     to the caller immediately and the work continues on Flowable's job executor. A client cannot
+     learn the outcome from the response that started it; it has to poll (service 3).
+
+  2. MESSAGE CORRELATION WITH A NON-INTERRUPTING TIMER. The `waitForProvisioning` sub-process waits
+     for a `provisioningCompleted` message correlated by the process instance's business key, which
+     is the order number. The boundary timer on it has cancelActivity="false" on purpose: when it
+     fires it reports the order as STUCK and then *leaves the wait in place*. That is what makes
+     failure branch A repairable - ops can still correlate the missing message later and the
+     process finishes normally, instead of having to be restarted from scratch.
+
+  The timer duration comes from the `provisioningTimeout` variable so the demo can make an order go
+  stuck in seconds instead of waiting out a production-length SLA.
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://mclsaat.hu/legacy/activation">
+
+    <!-- The network provisioning platform's callback. Correlated by business key = order number. -->
+    <message id="provisioningCompletedMessage" name="provisioningCompleted"/>
+
+    <process id="subscriptionActivation" name="Subscription activation" isExecutable="true">
+
+        <documentation>
+            Activates, changes or extends a subscription. Business key is the order number
+            (ORD/yyyy/nnnnnnn). Variables: orderNo, changeType, customerRef, offerId, msisdn,
+            requestedStartDate, targetSubscriptionRef, simulateStuck, provisioningTimeout.
+        </documentation>
+
+        <startEvent id="orderReceived" name="Order received"/>
+        <sequenceFlow id="toValidate" sourceRef="orderReceived" targetRef="validateOrder"/>
+
+        <!--
+          async: the REST call that started this process has already returned. Everything below
+          happens on the job executor, which is also what makes the retry semantics real and is why
+          every outbound call further down has to be idempotent.
+        -->
+        <serviceTask id="validateOrder" name="Validate against the catalog"
+                     flowable:async="true"
+                     flowable:delegateExpression="${validateOrderDelegate}"/>
+        <sequenceFlow id="toTypeGateway" sourceRef="validateOrder" targetRef="changeTypeGateway"/>
+
+        <!--
+          A rejected order is a business outcome, not a technical failure, so it is modelled in the
+          process rather than left to an exception.
+
+          This matters for more than tidiness. A BpmnError thrown out of an async service task with
+          nothing to catch it fails the job and ROLLS THE TRANSACTION BACK - including any attempt
+          the delegate made to record the reason on the order, which would leave the order sitting
+          in RECEIVED for ever with no explanation. Catching the error here means the rejection is
+          written in a transaction that commits, and the instance ends cleanly.
+        -->
+        <boundaryEvent id="validationRejected" name="Order rejected" attachedToRef="validateOrder">
+            <errorEventDefinition/>
+        </boundaryEvent>
+        <sequenceFlow id="toMarkRejected" sourceRef="validationRejected" targetRef="markRejected"/>
+        <serviceTask id="markRejected" name="Record the rejection"
+                     flowable:delegateExpression="${markRejectedDelegate}"/>
+        <sequenceFlow id="toOrderRejected" sourceRef="markRejected" targetRef="orderRejected"/>
+        <endEvent id="orderRejected" name="Order rejected"/>
+
+        <exclusiveGateway id="changeTypeGateway" name="What kind of change?"/>
+
+        <sequenceFlow id="toReserveSubscription" sourceRef="changeTypeGateway" targetRef="reserveSubscription">
+            <conditionExpression xsi:type="tFormalExpression">
+                ${changeType == 'NEW_SUBSCRIPTION'}
+            </conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="toReserveAddon" sourceRef="changeTypeGateway" targetRef="reserveAddon">
+            <conditionExpression xsi:type="tFormalExpression">
+                ${changeType == 'ADDON'}
+            </conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="toApplyPlanChange" sourceRef="changeTypeGateway" targetRef="applyPlanChange">
+            <conditionExpression xsi:type="tFormalExpression">
+                ${changeType == 'PLAN_CHANGE'}
+            </conditionExpression>
+        </sequenceFlow>
+
+        <!-- Creates the catalog subscription in PA. From here on an abandoned process leaves a
+             visible inconsistency in the catalog, which is the whole point of failure branch A. -->
+        <serviceTask id="reserveSubscription" name="Reserve subscription in the catalog"
+                     flowable:delegateExpression="${reserveSubscriptionDelegate}"/>
+        <sequenceFlow id="fromReserveSubscription" sourceRef="reserveSubscription" targetRef="changeTypeJoin"/>
+
+        <serviceTask id="reserveAddon" name="Reserve add-on in the catalog"
+                     flowable:delegateExpression="${reserveAddonDelegate}"/>
+        <sequenceFlow id="fromReserveAddon" sourceRef="reserveAddon" targetRef="changeTypeJoin"/>
+
+        <serviceTask id="applyPlanChange" name="Apply the plan change in the catalog"
+                     flowable:delegateExpression="${applyPlanChangeDelegate}"/>
+        <sequenceFlow id="fromApplyPlanChange" sourceRef="applyPlanChange" targetRef="changeTypeJoin"/>
+
+        <exclusiveGateway id="changeTypeJoin" name="Merge"/>
+        <sequenceFlow id="toRequestProvisioning" sourceRef="changeTypeJoin" targetRef="requestProvisioning"/>
+
+        <!-- Asks the external network platform for a SIM (new mobile subscription) or for a network
+             profile update (plan change, add-on). Fire and forget: the answer comes back as a
+             message, if it comes back at all. -->
+        <serviceTask id="requestProvisioning" name="Request provisioning from the network platform"
+                     flowable:delegateExpression="${requestProvisioningDelegate}"/>
+        <sequenceFlow id="toWait" sourceRef="requestProvisioning" targetRef="waitForProvisioning"/>
+
+        <subProcess id="waitForProvisioning" name="Wait for the provisioning callback">
+            <startEvent id="waitStart"/>
+            <sequenceFlow id="toCatch" sourceRef="waitStart" targetRef="provisioningCallback"/>
+            <intermediateCatchEvent id="provisioningCallback" name="provisioningCompleted">
+                <messageEventDefinition messageRef="provisioningCompletedMessage"/>
+            </intermediateCatchEvent>
+            <sequenceFlow id="toWaitEnd" sourceRef="provisioningCallback" targetRef="waitEnd"/>
+            <endEvent id="waitEnd"/>
+        </subProcess>
+        <sequenceFlow id="toCompleteActivation" sourceRef="waitForProvisioning" targetRef="completeActivation"/>
+
+        <!--
+          cancelActivity="false" is the important attribute in this file. The timer reports the
+          order as stuck and the wait carries on, so the callback that eventually arrives - or the
+          one ops injects by hand - still finishes the order.
+        -->
+        <boundaryEvent id="provisioningTimeout" name="Provisioning SLA breached"
+                       attachedToRef="waitForProvisioning" cancelActivity="false">
+            <timerEventDefinition>
+                <timeDuration>${provisioningTimeout}</timeDuration>
+            </timerEventDefinition>
+        </boundaryEvent>
+        <sequenceFlow id="toMarkStuck" sourceRef="provisioningTimeout" targetRef="markStuck"/>
+
+        <serviceTask id="markStuck" name="Report the order as stuck"
+                     flowable:delegateExpression="${markStuckDelegate}"/>
+        <sequenceFlow id="toStuckReported" sourceRef="markStuck" targetRef="stuckReported"/>
+        <endEvent id="stuckReported" name="Stuck order reported to ops"/>
+
+        <!-- Activates the reserved subscription (or the reserved add-on) in the catalog. A plan
+             change has nothing to activate: the subscription was already live. -->
+        <serviceTask id="completeActivation" name="Activate in the catalog"
+                     flowable:delegateExpression="${completeActivationDelegate}"/>
+        <sequenceFlow id="toIssueInvoice" sourceRef="completeActivation" targetRef="issueInvoice"/>
+
+        <!-- async again: a billing outage must be able to retry on its own schedule without
+             holding the provisioning callback's thread. -->
+        <serviceTask id="issueInvoice" name="Issue the first invoice over SOAP"
+                     flowable:async="true"
+                     flowable:delegateExpression="${issueInvoiceDelegate}"/>
+        <sequenceFlow id="toMarkProvisioned" sourceRef="issueInvoice" targetRef="markProvisioned"/>
+
+        <serviceTask id="markProvisioned" name="Mark the order provisioned"
+                     flowable:delegateExpression="${markProvisionedDelegate}"/>
+        <sequenceFlow id="toDone" sourceRef="markProvisioned" targetRef="orderCompleted"/>
+        <endEvent id="orderCompleted" name="Order completed"/>
+
+    </process>
+</definitions>

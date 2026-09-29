@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>hu.mclsaat.legacy</groupId>
+  <artifactId>legacy-isp-parent</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Legacy ISP/Telco System (parent)</name>
+  <description>
+    Deliberately heterogeneous "legacy" enterprise system for an ISP / telco B2C
+    subscription business. Phase-1 base for the MCP / agent / UCP modernization experiment.
+  </description>
+
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <spring-boot.version>3.5.6</spring-boot.version>
+    <flowable.version>7.2.0</flowable.version>
+    <stripe-java.version>29.4.0</stripe-java.version>
+    <jaxb2-maven-plugin.version>3.2.0</jaxb2-maven-plugin.version>
+    <!--
+      Pinned explicitly. Left unversioned, Maven resolves "the latest" on every build, which is both
+      irreproducible and noisy - `dependency:go-offline` cannot pre-fetch a plugin whose version it
+      does not know, and warns about it on every module.
+    -->
+    <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+    <maven-failsafe-plugin.version>3.5.2</maven-failsafe-plugin.version>
+    <testcontainers.version>1.21.3</testcontainers.version>
+
+    <!--
+      Testcontainers bundles docker-java, which still negotiates Docker Engine API 1.32 by
+      default. Docker Engine 25 and newer refuse anything below 1.40 ("client version 1.32 is
+      too old"), so the integration tests cannot reach the daemon unless the API version is
+      pinned. Override with -Ddocker.api.version=... on a Docker older than 25.
+    -->
+    <docker.api.version>1.44</docker.api.version>
+  </properties>
+
+  <modules>
+    <module>subsystem-clients</module>
+    <module>catalog-service</module>
+    <module>billing-service</module>
+    <module>activation-service</module>
+    <module>ops-console</module>
+    <module>stripe-sim</module>
+  </modules>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.flowable</groupId>
+        <artifactId>flowable-bom</artifactId>
+        <version>${flowable.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.stripe</groupId>
+        <artifactId>stripe-java</artifactId>
+        <version>${stripe-java.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>hu.mclsaat.legacy</groupId>
+        <artifactId>subsystem-clients</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${maven-compiler-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>${maven-failsafe-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+          <configuration>
+            <!--
+              The runnable fat jar gets the "app" classifier so the plain jar stays the module's
+              main artifact. Without this, `repackage` replaces the main artifact and Failsafe
+              (which runs after `package`) puts a fat jar on the test classpath, where the classes
+              live under BOOT-INF/classes and are therefore invisible.
+            -->
+            <classifier>app</classifier>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <parameters>true</parameters>
+        </configuration>
+      </plugin>
+      <!--
+        Unit tests are named *Test and run in `mvn test`. Tests that need a real PostgreSQL
+        container, a running Flowable engine or a live HTTP port are named *IT and run in
+        `mvn verify` through Failsafe, so a plain `mvn test` stays fast and Docker-free.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <!-- read by docker-java as its DockerClientConfig "api.version" key -->
+            <api.version>${docker.api.version}</api.version>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

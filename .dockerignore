@@ -1,0 +1,16 @@
+# Keep the build context small: the builder stage compiles from source, so nothing already built
+# belongs in it, and a stale target/ directory would be copied over the fresh one.
+target/
+*/target/
+.git/
+.local-run/
+batch-exchange/
+docs/
+*.md
+!README.md
+# docker/ca/README.md must survive, so the COPY of docker/ca/ always has something to copy
+!docker/ca/README.md
+.idea/
+.vscode/
+*.iml
+*.log

@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Subsystem 3: billing and payment.
+
+  Contract-first SOAP. The vocabulary here is billing's own and matches no other subsystem:
+
+    * identities            billingAccountNo "BA-00042" and an integer customerRef 42,
+                            where the catalog uses the zero-padded string "00000042"
+    * money                 xs:decimal in HUF *major* units with 2 decimals (5990.00),
+                            where the catalog uses an integer count of fillér (599000)
+    * dates and timestamps  xs:string, dates as yyyy-MM-dd,
+                            where the activation subsystem uses yyyyMMdd
+    * invoice numbers       "2026/INV/000001" with slashes
+    * VAT                   billing is invoiced on NET amounts and adds VAT itself; the
+                            catalog only knows gross consumer prices, so the caller has to
+                            divide by 1.27 before it gets here
+
+  See docs/semantic-mismatches.md for the full table and the rounding artefact this produces.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tns="http://mclsaat.hu/legacy/billing/v1"
+           targetNamespace="http://mclsaat.hu/legacy/billing/v1"
+           elementFormDefault="qualified">
+
+    <!-- ===================== common types ===================== -->
+
+    <xs:complexType name="invoiceType">
+        <xs:sequence>
+            <xs:element name="invoiceNo"        type="xs:string"/>
+            <xs:element name="billingAccountNo" type="xs:string"/>
+            <xs:element name="customerRef"      type="xs:int"/>
+            <xs:element name="subscriptionRef"  type="xs:string" minOccurs="0"/>
+            <!-- yyyy-MM-dd -->
+            <xs:element name="periodStart"      type="xs:string"/>
+            <xs:element name="periodEnd"        type="xs:string"/>
+            <xs:element name="netAmount"        type="xs:decimal"/>
+            <xs:element name="vatRate"          type="xs:decimal"/>
+            <xs:element name="vatAmount"        type="xs:decimal"/>
+            <xs:element name="grossAmount"      type="xs:decimal"/>
+            <xs:element name="currency"         type="xs:string"/>
+            <!-- OPEN | SETTLEMENT_PENDING | PAID | CANCELLED -->
+            <xs:element name="status"           type="xs:string"/>
+            <xs:element name="paymentRef"       type="xs:string" minOccurs="0"/>
+            <xs:element name="batchId"          type="xs:string" minOccurs="0"/>
+            <xs:element name="issuedTs"         type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="paymentBatchType">
+        <xs:sequence>
+            <xs:element name="batchId"      type="xs:string"/>
+            <xs:element name="fileName"     type="xs:string" minOccurs="0"/>
+            <!-- OPEN | SENT | ACKED | FAILED -->
+            <xs:element name="status"       type="xs:string"/>
+            <xs:element name="itemCount"    type="xs:int"/>
+            <xs:element name="totalAmount"  type="xs:decimal"/>
+            <xs:element name="currency"     type="xs:string"/>
+            <xs:element name="createdTs"    type="xs:string"/>
+            <xs:element name="sentTs"       type="xs:string" minOccurs="0"/>
+            <xs:element name="ackedTs"      type="xs:string" minOccurs="0"/>
+            <xs:element name="ackFileName"  type="xs:string" minOccurs="0"/>
+            <xs:element name="ageMinutes"   type="xs:long"   minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- ============ service 5a: invoice query ============ -->
+
+    <xs:element name="getInvoicesRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <!-- exactly one of billingAccountNo / customerRef must be given -->
+                <xs:element name="billingAccountNo" type="xs:string" minOccurs="0"/>
+                <xs:element name="customerRef"      type="xs:int"    minOccurs="0"/>
+                <xs:element name="status"           type="xs:string" minOccurs="0"/>
+                <xs:element name="subscriptionRef"  type="xs:string" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="getInvoicesResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="invoice" type="tns:invoiceType" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- ===== called by the activation process once a subscription goes live ===== -->
+
+    <xs:element name="createInvoiceRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="customerRef"     type="xs:int"/>
+                <xs:element name="subscriptionRef" type="xs:string"/>
+                <!-- yyyy-MM-dd -->
+                <xs:element name="periodStart"     type="xs:string"/>
+                <xs:element name="periodEnd"       type="xs:string"/>
+                <!-- NET amount in HUF major units; billing adds VAT itself -->
+                <xs:element name="netAmount"       type="xs:decimal"/>
+                <xs:element name="currency"        type="xs:string"/>
+                <!-- optional idempotency key so a replayed Flowable job cannot double-invoice -->
+                <xs:element name="requestRef"      type="xs:string" minOccurs="0"/>
+                <!--
+                  Used only when this customerRef has no billing account yet, in which case one
+                  is opened on the spot. Billing has no way to look a name up in the catalog:
+                  the two subsystems share no database and no identifier space.
+                -->
+                <xs:element name="accountName"     type="xs:string" minOccurs="0"/>
+                <xs:element name="billingEmail"    type="xs:string" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="createInvoiceResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="invoice" type="tns:invoiceType"/>
+                <xs:element name="alreadyExisted" type="xs:boolean"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- ============ service 5b: start a payment ============ -->
+
+    <xs:element name="startPaymentRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="invoiceNo" type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="startPaymentResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="invoiceNo"    type="xs:string"/>
+                <xs:element name="paymentRef"   type="xs:string"/>
+                <xs:element name="clientSecret" type="xs:string"/>
+                <!--
+                  Stripe wants an integer count of minor units, so the NUMERIC(12,2) gross
+                  amount above is multiplied by 100 again on its way out. This is the third
+                  money representation the same figure passes through.
+                -->
+                <xs:element name="amountMinor"  type="xs:long"/>
+                <xs:element name="currency"     type="xs:string"/>
+                <xs:element name="paymentStatus" type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- ============ ops-only operations (failure branch B) ============ -->
+
+    <xs:element name="exportPaymentBatchRequest">
+        <xs:complexType>
+            <xs:sequence/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="exportPaymentBatchResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="batch" type="tns:paymentBatchType" minOccurs="0"/>
+                <xs:element name="message" type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="listUnconfirmedBatchesRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="olderThanMinutes" type="xs:int" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="listUnconfirmedBatchesResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="batch" type="tns:paymentBatchType" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="getPaymentBatchRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="batchId" type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="getPaymentBatchResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="batch"   type="tns:paymentBatchType"/>
+                <xs:element name="invoice" type="tns:invoiceType" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="reconcileBatchRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="batchId" type="xs:string"/>
+                <!--
+                  RESEND       - hand the outbox file to the clearing house again and wait for
+                                 a real acknowledgement
+                  RE_DRIVE_ACK - rebuild the acknowledgement from the outbox file we already
+                                 sent and post it ourselves; the manual back-office fix
+                -->
+                <xs:element name="mode" type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="reconcileBatchResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="batch"            type="tns:paymentBatchType"/>
+                <xs:element name="invoicesSettled"  type="xs:int"/>
+                <xs:element name="message"          type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+</xs:schema>
