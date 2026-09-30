@@ -8,6 +8,9 @@ be rewritten to accommodate them.
 Nothing on this page is speculative API design. Each item is a seam that already exists in the code
 because it was needed for phase 1 anyway.
 
+What this page gets wrong, or decides ahead of the design, is recorded in
+[`phase2-gaps.md`](phase2-gaps.md): read it before starting phase 2.
+
 ---
 
 ## 1. `subsystem-clients` is the layer MCP servers depend on
