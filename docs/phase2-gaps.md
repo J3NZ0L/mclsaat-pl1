@@ -9,7 +9,11 @@ customer/ops boundary, polling-only failure detection, both failure branches —
 [`phase2-seams.md`](phase2-seams.md).
 
 Findings are in three groups: gaps that block phase 2, decisions the phase-1 docs took ahead of the
-design, and places where the docs disagree with the code.
+design, and places where the docs disagreed with the code.
+
+**Status.** Section 3 has been corrected in `architecture.md` and `phase2-seams.md`, and
+`phase2-seams.md` now marks the section 2 items and 1.3–1.4 as open. Nothing in sections 1 and 2 has
+been resolved: the code gaps are still there and the decisions are still the user's to make.
 
 ---
 
@@ -105,11 +109,11 @@ the tokenomics phase. `phase2-seams.md` §2 proposes eight tools, and its `ops.r
 to four distinct actions (force-provision, cancel, reconcile with `RESEND`, reconcile with
 `RE_DRIVE_ACK`) — so ten or eleven in practice.
 
-The seams doc should be read as one candidate, not as the decision.
+`phase2-seams.md` §2 now presents its table as one candidate, not the decision.
 
 ---
 
-## 3. Doc drift
+## 3. Doc drift (corrected 2026-09-30)
 
 ### 3.1 "Four clients", five listed, one of them absent
 
@@ -119,7 +123,10 @@ The seams doc should be read as one candidate, not as the decision.
 activation's own, deliberately unshared one (DL-009).
 
 Through the shared layer, browsing plans is therefore direct SQL only. That is consistent with
-subsystem 1's "direct DB access" role in the design, but the docs are wrong about it.
+subsystem 1's "direct DB access" role in the design, but the docs were wrong about it.
+
+*Corrected:* both documents now list the four clients that exist and say the catalog is reached by
+direct SQL only through this layer.
 
 ### 3.2 The agent-architecture half of the design never reached the repository
 
@@ -135,5 +142,7 @@ the repository:
 * "two entry points, not two agents".
 
 Where phase 1 agrees with these, it agrees by coincidence rather than because it was built against
-them. Phase-2 work should take the full design from the user, not from `INITIAL_DESIGN.md`.
-`INITIAL_DESIGN.md` is read-only (see `CLAUDE.md` §2) and is not to be edited to close this gap.
+them. `INITIAL_DESIGN.md` is read-only (see `CLAUDE.md` §2) and is not to be edited to close this gap.
+
+*Corrected:* `phase2-seams.md` §0 now records the full design, and the rest of that page is annotated
+where it departs from it.

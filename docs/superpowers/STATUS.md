@@ -176,7 +176,9 @@ Nothing.
 The implementation was reviewed against the user's full phase-2 design. Gaps are recorded in
 `docs/phase2-gaps.md`: the shared client layer cannot place an order or create a subscriber, the
 payment loop only closes because `demo.sh` posts the webhook by hand, and two decisions (invoice
-timing vs. UCP checkout, where the diagnostic tool lives) are open. Nothing was fixed yet.
+timing vs. UCP checkout, where the diagnostic tool lives) are open. The doc drift is corrected:
+`phase2-seams.md` §0 now records the user's full phase-2 design, and it and `architecture.md` no
+longer claim a shared `CatalogRestClient`. The code gaps are not fixed.
 
 ## Next action
 Nothing is outstanding for phase 1 as originally scoped; `docs/phase2-gaps.md` lists what phase 2

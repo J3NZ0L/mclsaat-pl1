@@ -5,11 +5,34 @@ servers, agents with skills, the tokenomics measurement, and Google UCP — are 
 This page records where they attach, so that when they are built nothing in the legacy system has to
 be rewritten to accommodate them.
 
-Nothing on this page is speculative API design. Each item is a seam that already exists in the code
-because it was needed for phase 1 anyway.
+Each item is a seam that already exists in the code because it was needed for phase 1 anyway. The
+tool names in §2 are the one exception: they are a suggestion, not a decision. What phase 1 is still
+missing for phase 2 is in [`phase2-gaps.md`](phase2-gaps.md); read it before starting phase 2.
 
-What this page gets wrong, or decides ahead of the design, is recorded in
-[`phase2-gaps.md`](phase2-gaps.md): read it before starting phase 2.
+---
+
+## 0. The design this page is measured against
+
+`INITIAL_DESIGN.md` records only the bottom of the user's phase-2 architecture sketch: the shared
+subsystem-client layer and the three subsystems under it. The rest of the design, given by the user
+on 2026-09-30 and not otherwise in the repository, is:
+
+* **Two entry points, not two agents.** The company's own chat interface and a UCP endpoint are two
+  integration channels onto the same back end. UCP is not "run" here; an external agent (e.g. Gemini)
+  calls it and this system serves it.
+* **One agent core, two personas.** Customer and ops use the same runtime; only the system prompt and
+  the tool allowlist differ. The framework is open (e.g. Claude Agent SDK).
+* **One MCP server per subsystem**, all three built on the shared subsystem-client layer.
+* **The UCP adapter is not an MCP client.** It is a backend-to-backend call, so it uses the shared
+  subsystem-client layer directly rather than going over MCP transport. (Making it an MCP client was
+  considered and rejected for simplicity.)
+* **The failure branch is triggered by a diagnostic tool**, because there is no push notification,
+  only polling. It lists activations and invoices waiting for confirmation longer than a threshold,
+  lives on MCP#2 and MCP#3 (activation and billing), and only the ops persona can reach it.
+* **About 6+1 tools**: one per service plus the diagnostic tool. Final granularity (one tool per
+  service, or browse → select → confirm steps) is deliberately left to the tokenomics phase.
+
+Where the rest of this page agrees with those decisions, it was written without seeing them.
 
 ---
 
@@ -20,8 +43,9 @@ The library holds three things:
 * a **canonical model** — `Money`, `DataVolume`, `CanonicalPlan`, `CanonicalSubscription`,
   `CanonicalInvoice`, … — which belongs to none of the three subsystems;
 * **`SemanticMappers`**, the single place every legacy dialect is translated to and from it;
-* one client per protocol: `CatalogJdbcClient` (direct SQL), `CatalogRestClient`,
-  `ActivationRestClient`, `BillingSoapClient`, `BatchFileClient`.
+* one client per protocol: `CatalogJdbcClient` (direct SQL), `ActivationRestClient`,
+  `BillingSoapClient`, `BatchFileClient`. There is no shared catalog REST client — activation's
+  `CatalogRestClient` is its own (DL-009) — so through this layer the catalog is direct SQL only.
 
 An MCP server for this landscape should depend on `subsystem-clients` and expose its canonical model
 as tool schemas. It should *not* talk to the three services directly, and it should not re-derive the
@@ -31,12 +55,19 @@ DL-009) and the one phase 2 exists to fix.
 `ops-console` is the worked example: it is a consumer of exactly this layer, doing exactly the kind of
 cross-subsystem work an agent will do.
 
-## 2. Six services, six tools, one to one
+**The layer is not complete for phase 2.** It was built for the ops console, so it covers what ops
+needs and not what a customer does: `ActivationRestClient` has no method for `POST /orders` (services
+2 and 4), and nothing wraps the catalog's `POST /api/v1/subscribers`, which a new buyer needs before
+activation will accept an order. Both have to be added before the customer persona or the UCP adapter
+can be built on it ([`phase2-gaps.md`](phase2-gaps.md) 1.1, 1.2).
 
-`INITIAL_DESIGN.md` plans "kb. 6+1 tool" at one tool per service. The services were built so that
-mapping is mechanical:
+## 2. Six services, and one candidate tool mapping
 
-| Service | Today | Suggested MCP tool | Permission |
+`INITIAL_DESIGN.md` plans "kb. 6+1 tool" at one tool per service, and the design leaves the final
+granularity to the tokenomics phase. The table below is **one candidate** for that decision, not the
+decision. The services were built so that a one-to-one mapping is mechanical:
+
+| Service | Raw interface | Suggested MCP tool | Permission |
 | --- | --- | --- | --- |
 | 1. Browse plans | catalog REST `GET /api/v1/plans` | `catalog.browse_plans` | customer |
 | 2. Start subscription | activation REST `POST /orders` | `subscription.start` | customer |
@@ -48,6 +79,16 @@ mapping is mechanical:
 Service 6 splitting into a diagnose tool and a remediate tool is the one place a one-to-one mapping
 probably should not hold: an agent that can see a problem is much less dangerous than one that can act
 on it, and the two deserve separate permissions.
+
+Two things this candidate does not settle:
+
+* **The count is larger than it looks.** It is eight tools, not 6+1, and `ops.remediate` hides four
+  distinct actions — force-provision, cancel, reconcile with `RESEND`, reconcile with `RE_DRIVE_ACK` —
+  so ten or eleven in practice.
+* **The `ops.*` namespace is effectively a fourth MCP server.** The design has one server per
+  subsystem and puts the diagnostic tool on MCP#2 and MCP#3. The cross-subsystem join already exists
+  as one library call (`LandscapeDiagnostics`), which makes an ops server easy to build — but see §6
+  for what that costs. Which of the two to build is open ([`phase2-gaps.md`](phase2-gaps.md) 2.1).
 
 ## 3. The ops/customer permission boundary already exists
 
@@ -65,10 +106,11 @@ by path and by operation:
 permissions. That maps onto this split without moving anything — the ops agent gets the ops-only
 tools, the customer agent does not.
 
-## 4. `startPayment` is the UCP checkout hand-off
+## 4. `startPayment` is a candidate UCP checkout hand-off
 
-Phase 3 puts Google UCP on top of subscription purchase as a checkout-shaped transaction.
-`startPayment` already returns what a checkout needs:
+Phase 3 puts Google UCP on top of subscription purchase as a checkout-shaped transaction. The design
+names two places it could hook in: service 2 (starting the subscription) and subsystem 3 (billing).
+`startPayment` returns what a payment step needs:
 
 ```
 paymentRef     the Stripe PaymentIntent id
@@ -82,14 +124,22 @@ And the three-legged invoice lifecycle (`OPEN` → `SETTLEMENT_PENDING` → `PAI
 DL-013) gives a UCP adapter honest states to report: authorised-but-not-settled is a real condition
 here, not a simplification.
 
-Two things a UCP adapter will have to decide, which phase 1 deliberately leaves open:
+Three things a UCP adapter will have to decide, which phase 1 leaves open:
 
 * **Which price to quote.** The catalog quotes gross, billing invoices net, and for two of nine plans
   the round trip disagrees by a fillér (`semantic-mismatches.md`). A checkout protocol has to state
   one number. Nobody in this system owns that decision.
-* **Whether a subscription purchase is one transaction or two.** Activation returns `202 Accepted`
-  and the order completes minutes later. A checkout that must answer synchronously has to either wait
-  on the polling tool or model the order as pending.
+* **When the customer pays.** The invoice is issued by the process's last service task, *after*
+  provisioning completes, so there is no invoice number to pass to `startPayment` until minutes after
+  the order was placed. This is postpaid, activate-then-bill, and it means `startPayment` cannot be
+  called at checkout time. Either the UCP checkout models the purchase as a pending order that is
+  paid later, or a pay-at-checkout path has to be added. Check this against UCP's checkout-completion
+  and payment model before choosing ([`phase2-gaps.md`](phase2-gaps.md) 1.4).
+* **Who closes the payment loop.** Today `scripts/demo.sh` confirms the PaymentIntent and posts the
+  `payment_intent.succeeded` webhook itself; neither `stripe-sim` nor `stripe-mock` sends webhooks,
+  and settlement batches are not cut automatically (DL-018). `clientSecret` assumes a browser running
+  Stripe.js, which the chat channel does not have. Without a change here, an agent-driven purchase
+  stops at `OPEN` ([`phase2-gaps.md`](phase2-gaps.md) 1.3).
 
 ## 5. The tokenomics experiment has a measurable subject
 
@@ -120,8 +170,8 @@ ones.
 ## 6. The failure branches are the agent's reason to exist
 
 `INITIAL_DESIGN.md` says the failure branch is "ahol az ops-ágens ténylegesen bizonyítja a
-létjogosultságát". Both branches are built so that a *single* tool call cannot resolve them, which is
-what makes them agent-shaped rather than script-shaped:
+létjogosultságát". Both branches are built so that no single call can *resolve* them, which is what
+makes them agent-shaped rather than script-shaped:
 
 * **Stuck activation** needs activation's process state (REST) joined to the catalog's stale rows
   (direct JDBC) across an identifier-space mismatch — and then a judgement call between injecting the
@@ -132,6 +182,13 @@ what makes them agent-shaped rather than script-shaped:
   demonstrably moved, the confirmation is never coming).
 
 Both judgements depend on context no single query returns. That is the argument for an agent.
+
+It holds for remediation, not for detection. The joins above are already done in one library call,
+`LandscapeDiagnostics`, and the ops console serves each as one endpoint. If an `ops.diagnose` tool
+wraps it, the agent's contribution shrinks to the judgement step, and the tokenomics comparison has
+less translation work to measure. The design's alternative — per-subsystem diagnostic tools on MCP#2
+and MCP#3, with the agent doing the join — keeps the join on the agent's side. Which to build is open
+([`phase2-gaps.md`](phase2-gaps.md) 2.1).
 
 ## 7. What phase 2 must not "fix"
 
