@@ -190,12 +190,21 @@ process engine, the job executor, the timers, the HTTP calls between services â€
 * a **canonical model** (`Money`, `DataVolume`, `CanonicalPlan`, `CanonicalSubscription`, â€¦) that
   belongs to none of the three subsystems;
 * **`SemanticMappers`**, one place where every legacy dialect is translated to and from it;
-* four clients, one per protocol: `CatalogJdbcClient` (direct SQL), `CatalogRestClient`,
-  `ActivationRestClient`, `BillingSoapClient`, `BatchFileClient`.
+* four clients, one per protocol: `CatalogJdbcClient` (direct SQL), `ActivationRestClient`,
+  `BillingSoapClient`, `BatchFileClient`.
+
+There is no REST client for the catalog here. The only `CatalogRestClient` in the repository is
+activation's own, deliberately unshared one (DL-009), so through this layer the catalog is reached by
+direct SQL only.
 
 `ops-console` is its only consumer today. In phase 2 the MCP servers and the UCP adapter sit on
 exactly this layer, which is why it exists now rather than being invented later. See
 [`phase2-seams.md`](phase2-seams.md).
+
+The layer was built for the ops console's needs, and it shows: it can read orders, invoices and
+plans and run every ops operation, but it cannot **place** an order (services 2 and 4) or create a
+subscriber, both of which the customer persona and the UCP adapter need. See
+[`phase2-gaps.md`](phase2-gaps.md).
 
 ## The six services and where they land
 
