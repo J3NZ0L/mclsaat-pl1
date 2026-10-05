@@ -12,8 +12,8 @@ Findings are in three groups: gaps that block phase 2, decisions the phase-1 doc
 design, and places where the docs disagreed with the code.
 
 **Status.** Section 3 has been corrected in `architecture.md` and `phase2-seams.md`, and
-`phase2-seams.md` now marks the section 2 items and 1.3–1.4 as open. Nothing in sections 1 and 2 has
-been resolved: the code gaps are still there and the decisions are still the user's to make.
+`phase2-seams.md` now marks the section 2 items and 1.3–1.4 as open. As of 2026-10-05, items 1.1 and
+1.2 are addressed in `subsystem-clients`; section 2 decisions and 1.3–1.4 are still open.
 
 ---
 
@@ -21,8 +21,9 @@ been resolved: the code gaps are still there and the decisions are still the use
 
 ### 1.1 The shared layer cannot place an order
 
-`ActivationRestClient` in `subsystem-clients` can find, list, force-provision and cancel orders, but
-has no method for `POST /activation/v1/orders`
+`ActivationRestClient` in `subsystem-clients` can now place orders through
+`POST /activation/v1/orders` via `startOrder` plus typed helpers for new subscriptions, plan changes
+and add-ons
 ([`ActivationRestClient.java`](../subsystem-clients/src/main/java/hu/mclsaat/legacy/clients/protocol/ActivationRestClient.java)).
 
 Coverage of the six services through `subsystem-clients`:
@@ -30,9 +31,9 @@ Coverage of the six services through `subsystem-clients`:
 | # | Service | Covered |
 | - | --- | --- |
 | 1 | Browse plans | yes (`CatalogJdbcClient`, direct SQL only — see 3.1) |
-| 2 | Start subscription | **no** |
+| 2 | Start subscription | yes |
 | 3 | Poll order status | yes |
-| 4 | Plan change / add-on | **no** |
+| 4 | Plan change / add-on | yes |
 | 5 | Invoice query + start payment | yes |
 | 6 | Detect and resolve | yes |
 
@@ -42,8 +43,9 @@ Services 2 and 4 are the core MCP tools of the customer persona and the core cal
 
 `validateOrder` rejects an unknown `customerRef`
 ([`ValidateOrderDelegate.java`](../activation-service/src/main/java/hu/mclsaat/legacy/activation/process/ValidateOrderDelegate.java)),
-so a subscriber must already exist in the catalog. The catalog has `POST /api/v1/subscribers`, but
-nothing in `subsystem-clients` wraps it. A buyer arriving over UCP is new by definition.
+so a subscriber must already exist in the catalog. `subsystem-clients` now wraps
+`POST /api/v1/subscribers` in `CatalogSubscriberRestClient`, so a UCP adapter can onboard first and
+then place the activation order.
 
 Billing is not the problem: it opens a billing account lazily on the first invoice
 (`InvoiceService.openAccount`). Only the catalog side is missing.
