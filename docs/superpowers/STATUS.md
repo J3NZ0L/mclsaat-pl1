@@ -1,6 +1,6 @@
 # STATUS
 
-_Updated: 2026-09-29 (T14 — phase 1 complete)_
+_Updated: 2026-09-30 (phase-2 alignment review recorded)_
 
 ## Where we are
 **Phase 1 is complete.** All fourteen tasks done, everything verified by actually running it.
@@ -172,8 +172,17 @@ Nothing. The module POMs currently carry only the dependencies needed so far; ea
 ## Half-done
 Nothing.
 
+## Phase-2 alignment review (2026-09-30)
+The implementation was reviewed against the user's full phase-2 design. Gaps are recorded in
+`docs/phase2-gaps.md`: the shared client layer cannot place an order or create a subscriber, the
+payment loop only closes because `demo.sh` posts the webhook by hand, and two decisions (invoice
+timing vs. UCP checkout, where the diagnostic tool lives) are open. The doc drift is corrected:
+`phase2-seams.md` §0 now records the user's full phase-2 design, and it and `architecture.md` no
+longer claim a shared `CatalogRestClient`. The code gaps are not fixed.
+
 ## Next action
-Nothing is outstanding for phase 1. The pull request is ready for review:
+Nothing is outstanding for phase 1 as originally scoped; `docs/phase2-gaps.md` lists what phase 2
+needs first. The pull request is ready for review:
 https://github.com/J3NZ0L/mclsaat-pl1/pull/1
 
 If you are a fresh session picking this up, the useful entry points are:
@@ -183,6 +192,7 @@ If you are a fresh session picking this up, the useful entry points are:
 * `docs/semantic-mismatches.md` — the centrepiece: every data-model disagreement and the test pinning it.
 * `docs/decision-log.md` — 23 entries; read DL-006, DL-009, DL-014 and DL-022 first.
 * `docs/phase2-seams.md` — where MCP, the agents and UCP attach, and what they must not "fix".
+* `docs/phase2-gaps.md` — what the seams doc gets wrong and what phase 2 is still missing.
 
 Phase 2 (MCP servers, agents, tokenomics) and phase 3 (Google UCP) are **not** in this repository and
 were never in scope for this task.
