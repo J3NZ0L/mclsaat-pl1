@@ -17,6 +17,11 @@ _Updated: 2026-10-06 (phase-2 gap 1.3 implemented: system-owned payment closure)
 * `mvn verify` green twice in a row: billing 34 ITs (6 new `PayInvoiceIT`), subsystem-clients 47 tests
   (3 new), activation 16 ITs. The activation drain helper now also retries a PostgreSQL deadlock
   (pre-existing intermittent: seen on the untouched baseline too).
+* Verified by running it: `docker compose up --build` (all containers healthy, including the new
+  `stripe-sim`), `scripts/demo.sh` full run 21+ checks exit 0, and the `happy`, `batch`, `stuck`
+  submodes each exit 0 on a fresh stack. A raw `curl` SOAP `payInvoice` went `SETTLEMENT_PENDING` ->
+  `PAID` in ~2s with no webhook in billing's log; a repeat call returned `changed=false`; an unknown
+  invoice gave a `NOT_FOUND` fault.
 * Still open: gap 1.4 (activate-then-bill), phase-2 section 2 decisions.
 
 
