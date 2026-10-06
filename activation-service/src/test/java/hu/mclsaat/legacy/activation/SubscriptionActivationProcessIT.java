@@ -371,8 +371,10 @@ class SubscriptionActivationProcessIT extends ActivationIntegrationTest {
      * trustworthy.
      *
      * <p>Deleting an instance the job executor is working on at that exact moment loses the race and
-     * throws {@link FlowableOptimisticLockingException}, so this retries rather than treating the
-     * collision as a test failure. That is also how a real caller has to behave against a live
+     * throws {@link FlowableOptimisticLockingException} - or, when PostgreSQL notices the two
+     * transactions waiting on each other's rows first, a MyBatis {@code PersistenceException}
+     * wrapping "deadlock detected" - so this retries rather than treating the collision as a test
+     * failure. That is also how a real caller has to behave against a live
      * engine.
      */
     private void drainProcessInstancesLeftByEarlierTests() {
@@ -384,7 +386,8 @@ class SubscriptionActivationProcessIT extends ActivationIntegrationTest {
             for (var instance : instances) {
                 try {
                     runtimeService.deleteProcessInstance(instance.getId(), "test isolation");
-                } catch (FlowableOptimisticLockingException | FlowableObjectNotFoundException ex) {
+                } catch (FlowableOptimisticLockingException | FlowableObjectNotFoundException
+                         | org.apache.ibatis.exceptions.PersistenceException ex) {
                     // the executor got there first, or already finished it; try again next round
                 }
             }

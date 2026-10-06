@@ -12,7 +12,7 @@ scripts/demo.sh                # happy path + both failure branches, end to end
 
 Not a mock system. The databases, migrations, SOAP stack, WSDL, fixed-width file formats, process
 engine, job executor, timers and inter-service HTTP calls are all real. Two things are simulated,
-because the alternative teaches nothing: **Stripe** (the official `stripe-mock`, spoken to through the
+because the alternative teaches nothing: **Stripe** (the `stripe-sim` stand-in, or the official `stripe-mock`, spoken to through the
 real Stripe SDK) and the **external network provisioning platform** (which still calls back over real
 HTTP, from another thread).
 

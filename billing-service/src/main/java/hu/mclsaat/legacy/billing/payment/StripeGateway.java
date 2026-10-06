@@ -18,6 +18,13 @@ public interface StripeGateway {
      */
     PaymentIntentView createPaymentIntent(String invoiceNo, long amountMinor, String currency);
 
+    /**
+     * Confirms the intent from the server, with a test card, the way a browser would through
+     * Stripe.js. This is what lets a channel with no browser (chat, an agent) pay at all.
+     * Idempotent: an intent that has already succeeded is returned as it is.
+     */
+    PaymentIntentView confirmPaymentIntent(String paymentIntentId);
+
     /** The subset of Stripe's PaymentIntent this system cares about. */
     record PaymentIntentView(String id, String clientSecret, long amountMinor, String currency,
                              String status) {

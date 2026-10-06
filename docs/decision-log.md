@@ -328,3 +328,52 @@ They were originally declared without versions, which works but makes the build 
 resolves "latest" each time) and breaks `dependency:go-offline`, which cannot pre-fetch a plugin whose
 version it does not know — noisy on every module and a real cost inside a Docker build, where the
 dependency layer is meant to be cached.
+
+## DL-024 — Two ways to pay an invoice: browser hand-off and browserless `payInvoice`
+
+Closes gap 1.3 of [`phase2-gaps.md`](phase2-gaps.md). Until now `startPayment` was the only way in, and
+it hands back a `clientSecret` that only a browser running Stripe.js can use. The demo script stood in
+for the browser (a raw Stripe confirm) and for Stripe (a hand-posted webhook), and nothing ever cut a
+settlement batch, so an agent- or chat-driven purchase stalled at `OPEN`.
+
+Both entry points now exist, deliberately:
+
+| | `startPayment` | `payInvoice` |
+| --- | --- | --- |
+| Channel | a browser, a UCP-style checkout | chat, an agent: nothing to run Stripe.js |
+| Who confirms at Stripe | the customer's browser, with the `clientSecret` | billing, server-side, with Stripe's test card `pm_card_visa` |
+| Who tells billing it succeeded | Stripe's `payment_intent.succeeded` webhook | billing, in the same call |
+| Settlement batch | cut by ops or the nightly export (DL-018) | cut by the call itself |
+
+Decisions inside it:
+
+* **One transition, two callers.** The `OPEN` -> `SETTLEMENT_PENDING` move lives in one private method of
+  `PaymentService`, shared by the webhook and `payInvoice`. It is a conditional `UPDATE ... WHERE status
+  = 'OPEN'`, so the two racing, or either being repeated, is harmless.
+* **Not one transaction.** The Stripe calls run outside any DB transaction, the transition commits on its
+  own, and the batch export happens after that and is allowed to fail. Once Stripe has taken the money
+  billing must remember it whatever happens to a file write; a failed export leaves the invoice in
+  `SETTLEMENT_PENDING` for a retry of the same call (it exports an unbatched pending invoice) or for ops.
+* **The call returns at `SETTLEMENT_PENDING`, with the batch id, not at `PAID`.** `PAID` still needs the
+  clearing house's acknowledgement (the file exchange stays asynchronous, and failure branch B stays
+  reachable by silencing it). Callers poll `getInvoices`.
+* **`startPayment`'s intent is reused**, not duplicated, if both paths touch one invoice.
+* **`exportBatch` is not scoped to the invoice.** It sweeps every unbatched pending invoice, as the
+  nightly job does. One call can therefore settle someone else's payment. Left as it is: one batch per
+  payment would be a different, less realistic settlement model.
+* **The Stripe stand-in must be stateful, so compose now runs `stripe-sim`.** The official `stripe-mock`
+  is stateless: a confirm still returns the fixture's `requires_payment_method`, and billing (correctly)
+  will not treat that as paid. The official image remains as the opt-in compose profile
+  `official-stripe-mock` and in the create-only integration tests; `PayInvoiceIT` starts `stripe-sim`
+  in-process. This supersedes the "compose runs stripe-mock" half of DL-011.
+* **The Stripe SDK is configured per request** (`RequestOptions`), not through the static
+  `Stripe.apiKey` / `Stripe.overrideApiBase`, so two Spring contexts in one JVM (`PayInvoiceIT` against
+  the sim, the other ITs against the mock) cannot repoint each other.
+* **PaymentIntents are created with `automatic_payment_methods` (redirects off)** instead of
+  `payment_method_types=card`. `stripe/stripe-mock:latest` had dropped the old parameter, which broke
+  `PaymentFlowIT` and `BatchSettlementIT` on a clean checkout, and a server-side confirm has no browser
+  to follow a redirect anyway.
+
+Not done, deliberately: gap 1.4 (activate-then-bill) is untouched — an invoice number still only exists
+after provisioning — and the `pm_card_visa` test card is a test-mode stand-in; a stored customer payment
+method is a phase-3 question.

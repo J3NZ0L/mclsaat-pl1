@@ -9,11 +9,14 @@ import hu.mclsaat.legacy.clients.billing.gen.GetPaymentBatchResponse;
 import hu.mclsaat.legacy.clients.billing.gen.InvoiceType;
 import hu.mclsaat.legacy.clients.billing.gen.ListUnconfirmedBatchesRequest;
 import hu.mclsaat.legacy.clients.billing.gen.ListUnconfirmedBatchesResponse;
+import hu.mclsaat.legacy.clients.billing.gen.PayInvoiceRequest;
+import hu.mclsaat.legacy.clients.billing.gen.PayInvoiceResponse;
 import hu.mclsaat.legacy.clients.billing.gen.PaymentBatchType;
 import hu.mclsaat.legacy.clients.billing.gen.ReconcileBatchRequest;
 import hu.mclsaat.legacy.clients.billing.gen.ReconcileBatchResponse;
 import hu.mclsaat.legacy.clients.billing.gen.StartPaymentRequest;
 import hu.mclsaat.legacy.clients.billing.gen.StartPaymentResponse;
+import hu.mclsaat.legacy.clients.canonical.CanonicalModel;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CanonicalBatch;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CanonicalInvoice;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CustomerRef;
@@ -85,6 +88,22 @@ public class BillingSoapClient {
                 response.getClientSecret(),
                 Money.ofMinorUnits(response.getAmountMinor(), response.getCurrency()),
                 response.getPaymentStatus());
+    }
+
+    /**
+     * Service 5c: pay an invoice with no browser, which is how the chat and agent channels pay.
+     * Billing confirms the payment, hands the invoice to settlement and returns while it is
+     * {@code SETTLEMENT_PENDING}; the caller polls {@link #invoicesOfCustomer} until it is
+     * {@code PAID}. Safe to repeat.
+     */
+    public PaymentCompleted payInvoice(String invoiceNo) {
+        PayInvoiceRequest request = new PayInvoiceRequest();
+        request.setInvoiceNo(invoiceNo);
+        PayInvoiceResponse response = (PayInvoiceResponse) send(request,
+                "browserless payment of invoice " + invoiceNo);
+        return new PaymentCompleted(response.getInvoiceNo(), response.getPaymentRef(),
+                SemanticMappers.fromBillingInvoiceStatus(response.getInvoiceStatus()),
+                response.isChanged(), response.getBatchId(), response.getMessage());
     }
 
     /** Ops: cut a settlement batch now rather than waiting for the nightly run. */
@@ -211,6 +230,12 @@ public class BillingSoapClient {
 
     public record PaymentStarted(String invoiceNo, String paymentRef, String clientSecret,
                                 Money amount, String paymentStatus) {
+    }
+
+    /** {@code status} is the invoice's, in the canonical vocabulary, at the moment the call returned. */
+    public record PaymentCompleted(String invoiceNo, String paymentRef,
+                                  CanonicalModel.InvoiceStatus status, boolean changed,
+                                  String batchId, String message) {
     }
 
     public record BatchDetail(CanonicalBatch batch, List<CanonicalInvoice> invoices) {
