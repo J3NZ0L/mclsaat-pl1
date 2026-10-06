@@ -522,7 +522,7 @@ argument or separate tools, is **not decided here**; that is gap 2.2.
 | Q3 | Where does the cross-subsystem join happen? | In `LandscapeDiagnostics`, in code, before the agent sees a finding. The agent still owns the judgement step: force-provision vs cancel, `RESEND` vs `RE_DRIVE_ACK`. | user |
 | Q4 | Where do remediation tools live? | On MCP#4, beside diagnosis. See-vs-act is split by persona allowlist, for example a triage persona that drops the act tools. | user |
 | Q5 | What triggers detection? | The ops persona, on demand, with the existing thresholds (`olderThanMinutes`; billing's own default for batches). There is no scheduler and no push. | pre-answered from the design ("only polling"), not overruled |
-| Q6 | Can the customer persona see the diagnostic tools? | No. MCP#4 is not in its server list. As a second line, its configuration also disallows `mcp__ops__*`. | pre-answered, not overruled |
+| Q6 | Can the customer persona see the diagnostic tools? | No. MCP#4 is not in its server list. As a second line, its configuration also disallows the ops tools (see criterion 2 for the form). | pre-answered, not overruled |
 | Q7 | What happens to `ops-console`? | Unchanged. It is the human-facing surface over the same library, `demo.sh` drives detection through it (lines 304, 402, 462), and it holds the direct-JDBC interface style (`AGENTS.md` §3.4). MCP#4 and `ops-console` share logic by sharing `LandscapeDiagnostics`, not by one calling the other. | pre-answered, not overruled |
 | Q8 | Are fault injection and `export-batch` agent tools? | No. They are demo controls on `ops-console`'s remediation controller. | pre-answered, not overruled |
 | Q9 | Is any legacy service changed by this decision? | No, for branches A and B. Every primitive already exists. This is not a discriminator between the options. | code |
@@ -543,8 +543,8 @@ argument or separate tools, is **not decided here**; that is gap 2.2.
   wrapper for it, `ops-console` has no endpoint, and the catalog JDBC pool is read-only by design. The
   diagnosis recommends an action that no tool can perform.
 * **The DL-025 unpaid-order rule has no bulk source** on either side. `getInvoices` requires exactly one
-  of `billingAccountNo` and `customerRef`, and activation lists only `STUCK` and `AWAITING_PROVISIONING`
-  orders. The rule needs an additive legacy query whichever option is chosen, so it did not tilt the
+  of `billingAccountNo` and `customerRef`, and activation's only bulk listing is `stuck-orders`
+  (`STUCK` and `AWAITING_PROVISIONING`); its other lookups are per order or per customer. The rule needs an additive legacy query whichever option is chosen, so it did not tilt the
   decision.
 * **The brief does not put the diagnosis in the measurement.** `PROJECT_DESC_HUN.md` says the comparison
   is on "the same business transaction" and lists error handling (*hibakezelés*) among the agent's tasks,
@@ -576,7 +576,8 @@ argument or separate tools, is **not decided here**; that is gap 2.2.
    translation (seams §1; DL-009 stays as it is). `LandscapeDiagnostics` is reused, not reimplemented, and
    `ops-console` keeps working unchanged: `scripts/demo.sh` still passes.
 2. **The customer persona has no route to MCP#4.** A test asserts that the customer persona's server list
-   excludes it and that its configuration disallows `mcp__ops__*`. Tool annotations are not the boundary:
+   excludes it and that its configuration also disallows the ops tools (per-tool `mcp__ops__<tool>`
+   names; the server-level wildcard only where the persona is a subagent definition). Tool annotations are not the boundary:
    MCP treats them as untrusted hints.
 3. **Diagnosis never acts.** The diagnose tool is read-only and returns the existing categories,
    `repairableByCallback`, `settlementFilePresent` and the suggested remedy as a suggestion. Every
@@ -627,22 +628,29 @@ arm has to do the join anyway. The per-subsystem arrangement would be the apples
 
 Read from raw sources on 2026-10-06:
 
-* **MCP specification 2026-07-28** (release tag `5f5440b`), `docs/specification/2026-07-28/server/tools.mdx`
-  and `schema/2026-07-28/schema.ts`, compared with 2025-11-25. In 2026-07-28 `tools/list` "MUST NOT vary
+* **MCP specification 2026-07-28** (git tag `2026-07-28`, commit `5f5440b`; the two files below are
+  byte-identical at the tag and on `main` as of 2026-10-06),
+  `docs/specification/2026-07-28/server/tools.mdx` and `schema/2026-07-28/schema.ts` in
+  `modelcontextprotocol/modelcontextprotocol`, compared with 2025-11-25. In 2026-07-28 `tools/list` "MUST NOT vary
   per-connection" but "MAY vary by the authorization presented"; that clause is absent from 2025-11-25.
   Tool annotations (`readOnlyHint`, `destructiveHint`, ...) are defined in both and "MUST" be treated as
   untrusted unless from trusted servers. The spec says nothing about how many tools a server should expose.
   With no authentication (DL-012) a mixed customer-and-ops server cannot hide its ops tools, which is why
   the boundary is by server.
-* **Claude Agent SDK, TypeScript package 0.3.291** (npm, published 2026-10-06), read from `sdk.d.ts`
-  doc comments, not run. `allowedTools` auto-approves and does not restrict. `disallowedTools` removes a
-  tool from the model's context, and `mcp__server`, `mcp__server__*` and `mcp__*` remove every tool of a
-  server. A subagent definition takes its own `mcpServers`. A persona restricted only by `allowedTools`
-  therefore still sees the descriptions. The framework stays open (seams §0); this is one example.
-* **Anthropic, "Writing effective tools for agents"** (2025-09-11): consolidate chained operations into
+* **Claude Agent SDK, TypeScript package 0.3.291** (npm, published 2026-10-06T03:33Z), read from
+  `sdk.d.ts` doc comments, not run. `allowedTools` auto-approves and does not restrict. The session-level
+  `disallowedTools` removes the named tools from the model's context. Only the **subagent definition's**
+  `disallowedTools` is documented to take server-level specs (`mcp__server`, `mcp__server__*`,
+  `mcp__*`), which remove every tool of that server; the session-level comment does not say so, so a
+  session-level persona should list per-tool names (`mcp__ops__<tool>`) unless that is checked. A subagent
+  definition also takes its own `mcpServers`. A persona restricted only by `allowedTools` therefore still
+  sees the descriptions. The framework stays open (seams §0); this is one example.
+* **Anthropic, "Writing effective tools for AI agents—using AI agents"** (2025-09-11): consolidate chained operations into
   fewer, higher-level tools; too many or overlapping tools distract agents. **Anthropic, "Introducing
-  advanced tool use"** (2025-11-24): tool search is "less beneficial" under 10 tools; its 85% token and
-  49% to 74% accuracy figures come from libraries of 50+ tools and do not transfer here.
+  advanced tool use on the Claude Developer Platform"** (2025-11-24): tool search is "less beneficial"
+  under 10 tools. Its token example (about 77K to 8.7K, an 85% reduction) is for 50+ MCP tools, and its
+  accuracy gains (49% to 74%, 79.5% to 88.1%) are reported for "large tool libraries"; neither transfers
+  to roughly 8 to 13 tools.
 * **arXiv 2605.24660** (abstract only): about shortlist depth over registries of 20 to 3,251 tools;
   not used as evidence for a decision at this size.
 
