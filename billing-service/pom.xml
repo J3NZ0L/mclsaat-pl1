@@ -72,6 +72,13 @@
       <artifactId>spring-boot-testcontainers</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- the stateful Stripe stand-in, started in-process: stripe-mock cannot report a confirm -->
+    <dependency>
+      <groupId>hu.mclsaat.legacy</groupId>
+      <artifactId>stripe-sim</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>postgresql</artifactId>

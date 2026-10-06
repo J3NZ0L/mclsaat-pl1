@@ -18,6 +18,8 @@ import hu.mclsaat.legacy.billing.ws.gen.ListUnconfirmedBatchesRequest;
 import hu.mclsaat.legacy.billing.ws.gen.ListUnconfirmedBatchesResponse;
 import hu.mclsaat.legacy.billing.ws.gen.ReconcileBatchRequest;
 import hu.mclsaat.legacy.billing.ws.gen.ReconcileBatchResponse;
+import hu.mclsaat.legacy.billing.ws.gen.PayInvoiceRequest;
+import hu.mclsaat.legacy.billing.ws.gen.PayInvoiceResponse;
 import hu.mclsaat.legacy.billing.ws.gen.StartPaymentRequest;
 import hu.mclsaat.legacy.billing.ws.gen.StartPaymentResponse;
 import org.springframework.ws.server.endpoint.annotation.Endpoint;
@@ -133,6 +135,29 @@ public class BillingEndpoint {
         response.setAmountMinor(intent.amountMinor());
         response.setCurrency(intent.currency());
         response.setPaymentStatus(intent.status());
+        return response;
+    }
+
+    /**
+     * Service 5c: pay an invoice from a channel that has no browser. Billing confirms the payment
+     * at Stripe itself and hands the invoice to settlement; see {@code PaymentService#payInvoiceNow}.
+     * {@link #startPayment} remains the browser hand-off, and both can coexist on one invoice.
+     */
+    @PayloadRoot(namespace = NAMESPACE, localPart = "payInvoiceRequest")
+    @ResponsePayload
+    public PayInvoiceResponse payInvoice(@RequestPayload PayInvoiceRequest request) {
+        if (request.getInvoiceNo() == null || request.getInvoiceNo().isBlank()) {
+            throw new BillingException.BadRequest("invoiceNo is required");
+        }
+        var outcome = payments.payInvoiceNow(request.getInvoiceNo().trim());
+
+        PayInvoiceResponse response = new PayInvoiceResponse();
+        response.setInvoiceNo(outcome.invoice().invoiceNo());
+        response.setPaymentRef(outcome.invoice().paymentRef());
+        response.setInvoiceStatus(outcome.invoice().status());
+        response.setChanged(outcome.changed());
+        response.setBatchId(outcome.invoice().batchId());
+        response.setMessage(outcome.message());
         return response;
     }
 

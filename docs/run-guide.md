@@ -21,7 +21,7 @@ That builds the five service images and starts, in order:
 | Container | Port | What it is |
 | --- | --- | --- |
 | `postgres` | 5432 | one server, three databases: `catalogdb`, `flowabledb`, `billingdb` |
-| `stripe-mock` | 12111 | the official `stripe/stripe-mock` image |
+| `stripe-sim` | 12111 | the stateful Stripe stand-in (`stripe/stripe-mock` is an opt-in profile, DL-024) |
 | `catalog-service` | 8081 | subsystem 1 |
 | `billing-service` | 8083 | subsystem 3 |
 | `activation-service` | 8082 | subsystem 2, Flowable embedded |
@@ -120,7 +120,7 @@ scripts/create-local-databases.sh          # reads PGHOST/PGPORT/PGUSER, default
 # ...or, where only the postgres unix socket accepts a superuser:
 #   su postgres -c "PGHOST=/var/run/postgresql scripts/create-local-databases.sh"
 
-# build and run everything, including stripe-sim instead of stripe-mock
+# build and run everything, including stripe-sim
 scripts/run-local.sh
 ```
 
@@ -128,9 +128,10 @@ scripts/run-local.sh
 `catalog-service`, `billing-service`, `activation-service` and `ops-console` as background JVMs,
 waits for each health check, and prints where the logs are. `scripts/stop-local.sh` stops them.
 
-`stripe-sim` listens on **12111**, the same port as `stripe-mock`, so nothing else has to change.
-It differs from `stripe-mock` in one way that only helps: it remembers the PaymentIntents it created,
-so a retrieve after a confirm actually reports `succeeded`.
+`stripe-sim` listens on **12111**, the same port `stripe-mock` uses. It remembers the PaymentIntents it
+created, so a confirm actually makes them `succeeded` — which `payInvoice` needs, and which the stateless
+official mock cannot do (DL-024). Docker compose runs `stripe-sim` too; the official image is the opt-in
+compose profile `official-stripe-mock`.
 
 Logs go to `.local-run/logs/<service>.log`. The batch exchange goes to `.local-run/batch-exchange/`.
 
@@ -159,16 +160,17 @@ What it does, in order:
    subscription's effective allowance grow from 10240 MB to 15360 MB.
 6. **Query the invoices over SOAP** (service 5) — raw XML, including the `5990.01` gross against a
    catalog price of `5990.00`.
-7. **Start a payment**, confirm it at the Stripe stand-in, and post the webhook: the invoice goes to
-   `SETTLEMENT_PENDING`, not `PAID`.
-8. **Cut a settlement batch** and print the fixed-width file, then wait for the poller to apply the
-   acknowledgement: invoice `PAID`, batch `ACKED`.
+7. **Pay the invoice with one SOAP call**, `payInvoice` — no browser, no Stripe confirm and no webhook
+   from the script. Billing confirms at Stripe, moves the invoice to `SETTLEMENT_PENDING` (not
+   `PAID`) and cuts the settlement batch itself.
+8. **Wait for the poller** to apply the clearing house's acknowledgement: batch `ACKED`, invoice `PAID`.
+   No ops action is involved. The fixed-width file is printed in failure branch B.
 9. **Failure branch A** — start an order with `simulateStuck: true` and a short timer, wait for it to
    go `STUCK`, show the catalog left holding a `PA` subscription, detect it through the ops console
    (which has to join activation over REST with the catalog over JDBC), then resolve it with
    `force-provision` and watch the order finish normally.
-10. **Failure branch B** — silence the clearing house, pay another invoice, export a batch, show it
-    stranded in `SENT`, detect it through the ops console (SOAP plus the outbox files), then
+10. **Failure branch B** — silence the clearing house, pay another invoice with `payInvoice` (billing cuts
+    the batch itself), show the batch stranded in `SENT` and the invoice in `SETTLEMENT_PENDING`, detect it through the ops console (SOAP plus the outbox files), then
     `reconcileBatch` with `RE_DRIVE_ACK` and watch the invoice reach `PAID`.
 
 Every step is a check, and the script exits non-zero if any of them fails — so it doubles as an
@@ -247,7 +249,7 @@ Everything is an environment variable with a working default. The defaults assum
 | `BILLING_PORT` | `8083` | |
 | `BILLING_DB_URL` | `jdbc:postgresql://localhost:5432/billingdb` | |
 | `STRIPE_API_KEY` | `sk_test_mclsaat123` | must be alphanumeric after `sk_test_` — `stripe-mock` validates the shape |
-| `STRIPE_API_BASE` | `http://localhost:12111` | `stripe-mock`, `stripe-sim`, or `https://api.stripe.com` |
+| `STRIPE_API_BASE` | `http://localhost:12111` (`http://stripe-sim:12111` under compose) | `stripe-sim`, `stripe-mock` (create-only), or `https://api.stripe.com` |
 | `BATCH_OUTBOX_DIR` / `BATCH_INBOX_DIR` / `BATCH_ARCHIVE_DIR` | `batch-exchange/{outbox,inbox,archive}` | |
 | `BATCH_POLL_INTERVAL_MS` | `2000` | how often the inbox is swept |
 | `BATCH_AUTO_EXPORT` | `false` | the nightly-style export; off so the demo decides when a batch is cut |

@@ -186,6 +186,7 @@ Money is `xs:decimal` in HUF major units. Dates are `xs:string` in `yyyy-MM-dd` 
 | `getInvoices` | Service 5a. Exactly one of `billingAccountNo` or `customerRef`; optional `status`, `subscriptionRef` |
 | `createInvoice` | Called by activation. Takes a **net** amount and adds VAT. Idempotent on `requestRef` |
 | `startPayment` | Service 5b. Creates a Stripe PaymentIntent, returns its `clientSecret` |
+| `payInvoice` | Service 5c. Pays with **no browser**: billing confirms at Stripe, moves the invoice to `SETTLEMENT_PENDING` and cuts the settlement batch. For chat/agent channels |
 | `exportPaymentBatch` | Ops. Cuts a settlement batch now instead of waiting for the nightly run |
 | `listUnconfirmedBatches` | Ops. Batches sent and never acknowledged — failure branch B |
 | `getPaymentBatch` | Ops. One batch plus its invoices |
@@ -227,6 +228,28 @@ database and no identifier space. Without them an unknown `customerRef` is a `BA
 `startPayment` returns `amountMinor` as an integer count of minor units, because that is what Stripe
 wants — the third representation the same figure passes through. The invoice stays `OPEN`: Stripe has
 not taken anything yet.
+
+`payInvoice` takes just `invoiceNo` and is the payment path for channels with no browser; `startPayment`
+stays as the browser hand-off, where the caller gets the `clientSecret` and Stripe.js does the confirming
+(DL-024). Both can be used on one invoice: an intent already created by `startPayment` is reused. The
+response carries `invoiceNo`, `paymentRef`, `invoiceStatus`, `changed`, an optional `batchId` and a
+`message`. The steps run in this order, and the call returns after the second one's batch is *sent*, not
+after it is acknowledged:
+
+| Step | Invoice status | Visible in the response |
+| --- | --- | --- |
+| Stripe confirms the PaymentIntent (server-side, test card) | `OPEN` | — |
+| Billing records it, the same transition as the webhook | `SETTLEMENT_PENDING` | `changed = true` |
+| Billing cuts a settlement batch and writes the file | `SETTLEMENT_PENDING` | `batchId` |
+| Clearing house acknowledges, the poller applies it (seconds later) | `PAID` | poll `getInvoices` |
+
+Idempotent: an invoice that is already `SETTLEMENT_PENDING` or `PAID` is reported as it is with
+`changed = false`, and one stuck in `SETTLEMENT_PENDING` with no batch gets its batch now. A `CANCELLED`
+invoice is `ILLEGAL_STATE`; so is a payment Stripe does not complete. If the export itself fails the
+Stripe payment is *not* rolled back — the invoice waits in `SETTLEMENT_PENDING` and `message` says so.
+With the clearing house silenced (failure branch B) the call still returns `SETTLEMENT_PENDING` plus a
+`batchId`, and the batch stays `SENT`. Note that `exportBatch` sweeps every unbatched
+`SETTLEMENT_PENDING` invoice, so one call can settle other customers' payments too.
 
 Invoice statuses: `OPEN` → `SETTLEMENT_PENDING` → `PAID`, plus `CANCELLED`.
 Batch statuses: `OPEN` → `SENT` → `ACKED`, plus `FAILED`.
@@ -356,8 +379,9 @@ error models produced it. `BILLING_NOT_FOUND` → 404, `BILLING_ILLEGAL_STATE` �
 
 ## Stripe stand-in (REST/JSON, port 12111)
 
-Under compose: the official `stripe/stripe-mock` image. Locally: the `stripe-sim` module, on the
-same port, so the two are drop-in replacements. Both are spoken to through the real Stripe Java SDK.
+Compose and the local path both run the `stripe-sim` module. The official `stripe/stripe-mock` image is
+an opt-in compose profile (`official-stripe-mock`): it can create PaymentIntents but cannot complete one,
+so `payInvoice` cannot close against it (DL-024). Same port, same SDK either way.
 
 `stripe-sim` implements `POST /v1/payment_intents`, `GET /v1/payment_intents/{id}` and
 `POST /v1/payment_intents/{id}/confirm`, in Stripe's response shape. Unlike `stripe-mock` it

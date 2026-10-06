@@ -12,9 +12,8 @@ Findings are in three groups: gaps that block phase 2, decisions the phase-1 doc
 design, and places where the docs disagreed with the code.
 
 **Status.** Section 3 has been corrected in `architecture.md` and `phase2-seams.md`, and
-`phase2-seams.md` marks the section 2 items and 1.3 as open. As of 2026-10-05, items 1.1 and 1.2 are
-addressed in `subsystem-clients`. Item 1.4 was decided on 2026-10-06 (DL-025, no code change). Section 2
-decisions and 1.3 are still open here; the 1.3 fix is on `bugfix/phase-2-gap-payment-closure`.
+`phase2-seams.md` marks the section 2 items as open. As of 2026-10-06, items 1.1, 1.2 and 1.3 are
+addressed and item 1.4 is decided (DL-025, no code change); section 2 decisions are still open.
 
 ---
 
@@ -51,7 +50,15 @@ then place the activation order.
 Billing is not the problem: it opens a billing account lazily on the first invoice
 (`InvoiceService.openAccount`). Only the catalog side is missing.
 
-### 1.3 The payment loop is closed by the demo script, not by the system
+### 1.3 The payment loop is closed by the demo script, not by the system — **addressed 2026-10-06**
+
+> **Addressed.** Billing now has a browserless `payInvoice` SOAP operation that confirms the
+> PaymentIntent at Stripe itself, moves the invoice to `SETTLEMENT_PENDING` through the same
+> transition the webhook uses, and cuts the settlement batch. `scripts/demo.sh` no longer confirms
+> anything at Stripe or posts a webhook; `BillingSoapClient.payInvoice` exposes it to the shared layer.
+> `startPayment` and `/webhook/stripe` are unchanged, and the invoice still reaches `PAID` only when the
+> clearing house acknowledges the batch. See DL-024 and [`api-reference.md`](api-reference.md). The
+> original finding follows, for the record. Gap 1.4 (activate-then-bill) is untouched.
 
 [`scripts/demo.sh`](../scripts/demo.sh) confirms the PaymentIntent at the Stripe stand-in itself and
 then posts the `payment_intent.succeeded` webhook to billing itself. Nothing in `stripe-sim` emits

@@ -1,6 +1,29 @@
 # STATUS
 
-_Updated: 2026-10-05 (phase-2 gap implementation started)_
+_Updated: 2026-10-06 (phase-2 gap 1.3 implemented: system-owned payment closure; gap 1.4 decided: DL-025)_
+
+## Latest: gap 1.3 — browserless `payInvoice` (branch `bugfix/phase-2-gap-payment-closure`)
+* New billing SOAP operation `payInvoice` (both XSD copies updated together): confirms the
+  PaymentIntent at Stripe, makes the same `OPEN` -> `SETTLEMENT_PENDING` transition as the webhook
+  (one shared method in `PaymentService`), cuts the settlement batch. Returns at `SETTLEMENT_PENDING`
+  with a `batchId`; `PAID` still needs the clearing house ack. `startPayment` and `/webhook/stripe`
+  are unchanged. `BillingSoapClient.payInvoice` exposes it. See DL-024.
+* Compose now runs `stripe-sim` (stateful); the official `stripe-mock` is the opt-in profile
+  `official-stripe-mock`. The Stripe SDK is configured per request, and PaymentIntents use
+  `automatic_payment_methods` because `stripe-mock:latest` had dropped `payment_method_types`
+  (that broke `PaymentFlowIT`/`BatchSettlementIT` on a clean checkout).
+* `scripts/demo.sh` no longer confirms at Stripe or posts a webhook; failure branch B uses `payInvoice`
+  with the clearing house silenced.
+* `mvn verify` green twice in a row: billing 34 ITs (6 new `PayInvoiceIT`), subsystem-clients 47 tests
+  (3 new), activation 16 ITs. The activation drain helper now also retries a PostgreSQL deadlock
+  (pre-existing intermittent: seen on the untouched baseline too).
+* Verified by running it: `docker compose up --build` (all containers healthy, including the new
+  `stripe-sim`), `scripts/demo.sh` full run 21+ checks exit 0, and the `happy`, `batch`, `stuck`
+  submodes each exit 0 on a fresh stack. A raw `curl` SOAP `payInvoice` went `SETTLEMENT_PENDING` ->
+  `PAID` in ~2s with no webhook in billing's log; a repeat call returned `changed=false`; an unknown
+  invoice gave a `NOT_FOUND` fault.
+* Gap 1.4 was decided afterwards (DL-025, see below). Still open: phase-2 section 2 decisions.
+
 
 ## Where we are
 **Phase 1 is complete.** All fourteen tasks done, everything verified by actually running it.
@@ -196,23 +219,22 @@ Decision record: `docs/decision-log.md` DL-025. Keep activate-then-bill; the UCP
 automatically, chat pays explicitly, both via `payInvoice`). A declined charge cancels the checkout and
 goes to ops; no automatic compensation. **No code changed.**
 
-Half-done / for the merge: this branch cites DL-024 and `payInvoice`, which exist only on the 1.3 branch
-(`bugfix/phase-2-gap-payment-closure`). Merge 1.3 first, then rebase this one; expect small conflicts in
-`decision-log.md`, `phase2-gaps.md` (the Status sentence), `phase2-seams.md` §4 and this file.
-Needed later, all additive: an optional payment-method element on `payInvoice` (both XSD copies), a
+Merged with the 1.3 work, so DL-024 and `payInvoice` are in the same tree as DL-025. Needed later, all
+additive: an optional payment-method element on `payInvoice` (both XSD copies), a
 distinguishable decline fault in billing, a fault-injectable decline in `stripe-sim`, an ops diagnostic
 rule for provisioned-but-unpaid orders.
 
 ## Next action
-Continue with `docs/phase2-gaps.md` item 1.3 (payment loop closure without manual webhook posting),
-then revisit section 2 decisions after code support is in place.
+Gaps 1.1–1.4 are closed (1.4 by decision only). Next: the phase-2 section 2 decisions in
+`docs/phase2-gaps.md`, 2.1 (where the diagnostic tool lives) before any ops MCP server is built and 2.2
+(tool granularity, which the design defers to the tokenomics phase), then phase 2 itself.
 
 If you are a fresh session picking this up, the useful entry points are:
 
 * `CLAUDE.md` — conventions, the do-not-modify list, and the seven things that look like bugs and are
   the subject matter.
 * `docs/semantic-mismatches.md` — the centrepiece: every data-model disagreement and the test pinning it.
-* `docs/decision-log.md` — 23 entries; read DL-006, DL-009, DL-014 and DL-022 first.
+* `docs/decision-log.md` — 25 entries; read DL-006, DL-009, DL-014 and DL-022 first.
 * `docs/phase2-seams.md` — where MCP, the agents and UCP attach, and what they must not "fix".
 * `docs/phase2-gaps.md` — what the seams doc gets wrong and what phase 2 is still missing.
 

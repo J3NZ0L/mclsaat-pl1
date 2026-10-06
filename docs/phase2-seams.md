@@ -73,7 +73,7 @@ decision. The services were built so that a one-to-one mapping is mechanical:
 | 2. Start subscription | activation REST `POST /orders` | `subscription.start` | customer |
 | 3. Poll order status | activation REST `GET /orders?orderNo=…` | `subscription.order_status` | customer |
 | 4. Plan change / add-on | same endpoint, `changeType` variant | `subscription.change` | customer |
-| 5. Invoice query + pay | billing SOAP `getInvoices`, `startPayment` | `billing.list_invoices`, `billing.start_payment` | customer |
+| 5. Invoice query + pay | billing SOAP `getInvoices`, `payInvoice` (chat/agent) or `startPayment` (browser hand-off) | `billing.list_invoices`, `billing.pay_invoice` / `billing.start_payment` | customer |
 | 6. Detect & resolve | ops console `/ops/v1/**` | `ops.diagnose`, `ops.remediate` | **ops only** |
 
 Service 6 splitting into a diagnose tool and a remediate tool is the one place a one-to-one mapping
@@ -135,11 +135,11 @@ Three things a UCP adapter will have to decide, which phase 1 leaves open:
   called at checkout time. **Decided (DL-025):** the UCP checkout is held in `complete_in_progress`
   until the order is provisioned and the invoice is charged, and no pay-at-checkout path is added
   ([`phase2-gaps.md`](phase2-gaps.md) 1.4).
-* **Who closes the payment loop.** Today `scripts/demo.sh` confirms the PaymentIntent and posts the
-  `payment_intent.succeeded` webhook itself; neither `stripe-sim` nor `stripe-mock` sends webhooks,
-  and settlement batches are not cut automatically (DL-018). `clientSecret` assumes a browser running
-  Stripe.js, which the chat channel does not have. Without a change here, an agent-driven purchase
-  stops at `OPEN` ([`phase2-gaps.md`](phase2-gaps.md) 1.3).
+* **Who closes the payment loop — answered (gap 1.3).** The system does, for a channel with no
+  browser: billing's `payInvoice` confirms the PaymentIntent, makes the `SETTLEMENT_PENDING` transition
+  the webhook makes, and cuts the settlement batch; the invoice reaches `PAID` when the clearing house
+  answers, so the caller polls. `startPayment` and its `clientSecret` remain the browser hand-off for a
+  UCP-style checkout, and `/webhook/stripe` still works (DL-024).
 
 ## 5. The tokenomics experiment has a measurable subject
 
