@@ -1,6 +1,6 @@
 # STATUS
 
-_Updated: 2026-09-30 (phase-2 alignment review recorded)_
+_Updated: 2026-10-05 (phase-2 gap implementation started)_
 
 ## Where we are
 **Phase 1 is complete.** All fourteen tasks done, everything verified by actually running it.
@@ -180,10 +180,18 @@ timing vs. UCP checkout, where the diagnostic tool lives) are open. The doc drif
 `phase2-seams.md` §0 now records the user's full phase-2 design, and it and `architecture.md` no
 longer claim a shared `CatalogRestClient`. The code gaps are not fixed.
 
+## Phase-2 gap implementation start (2026-10-05)
+Implemented the first two code gaps from `docs/phase2-gaps.md` in `subsystem-clients`:
+
+* `ActivationRestClient` now supports `POST /activation/v1/orders` through `startOrder` and typed
+  helpers (`startNewSubscription`, `startPlanChange`, `startAddon`), covering services 2 and 4.
+* Added `CatalogSubscriberRestClient` to wrap `POST /api/v1/subscribers`, so a new customer can be
+  onboarded through the shared layer before activation order placement.
+* Added focused unit tests: `ActivationRestClientTest` and `CatalogSubscriberRestClientTest`.
+
 ## Next action
-Nothing is outstanding for phase 1 as originally scoped; `docs/phase2-gaps.md` lists what phase 2
-needs first. The pull request is ready for review:
-https://github.com/J3NZ0L/mclsaat-pl1/pull/1
+Continue with `docs/phase2-gaps.md` item 1.3 (payment loop closure without manual webhook posting),
+then revisit section 2 decisions after code support is in place.
 
 If you are a fresh session picking this up, the useful entry points are:
 

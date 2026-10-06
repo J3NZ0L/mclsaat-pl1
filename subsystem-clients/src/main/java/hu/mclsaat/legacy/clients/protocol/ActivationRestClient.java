@@ -3,6 +3,7 @@ package hu.mclsaat.legacy.clients.protocol;
 import com.fasterxml.jackson.databind.JsonNode;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CanonicalOrder;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CustomerRef;
+import hu.mclsaat.legacy.clients.canonical.CanonicalModel.PhoneNumber;
 import hu.mclsaat.legacy.clients.mapping.SemanticMappers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +12,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +30,10 @@ import java.util.Optional;
 public class ActivationRestClient {
 
     private static final Logger log = LoggerFactory.getLogger(ActivationRestClient.class);
+
+    public static final String CHANGE_NEW_SUBSCRIPTION = "NEW_SUBSCRIPTION";
+    public static final String CHANGE_PLAN_CHANGE = "PLAN_CHANGE";
+    public static final String CHANGE_ADDON = "ADDON";
 
     private final RestClient rest;
     private final String baseUrl;
@@ -52,6 +58,40 @@ public class ActivationRestClient {
             body.forEach(order -> orders.add(toOrderFromListEntry(order)));
         }
         return orders;
+    }
+
+    /** Services 2 and 4 through one endpoint: submit a new order to activation. */
+    public CanonicalOrder startOrder(StartOrderRequest request) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("changeType", request.changeType());
+        payload.put("customerRef", request.customerRef());
+        payload.put("offerId", SemanticMappers.toOfferId(request.productCode()));
+        payload.put("msisdn", request.phoneNumber() == null ? null : request.phoneNumber().withPlus());
+        payload.put("requestedStartDate", SemanticMappers.toActivationDate(request.requestedStartDate()));
+        payload.put("targetSubscriptionRef", request.targetSubscriptionRef());
+        payload.put("simulateStuck", request.simulateStuck());
+        payload.put("provisioningTimeout", request.provisioningTimeout());
+        JsonNode body = post("/activation/v1/orders", payload,
+                "start order " + request.changeType() + " for customer " + request.customerRef());
+        return toOrderFromListEntry(body);
+    }
+
+    public CanonicalOrder startNewSubscription(int customerReference, String productCode,
+                                               PhoneNumber phoneNumber, LocalDate requestedStartDate) {
+        return startOrder(new StartOrderRequest(CHANGE_NEW_SUBSCRIPTION, customerReference, productCode,
+                phoneNumber, requestedStartDate, null, false, null));
+    }
+
+    public CanonicalOrder startPlanChange(int customerReference, String productCode,
+                                          String targetSubscriptionRef, LocalDate requestedStartDate) {
+        return startOrder(new StartOrderRequest(CHANGE_PLAN_CHANGE, customerReference, productCode,
+                null, requestedStartDate, targetSubscriptionRef, false, null));
+    }
+
+    public CanonicalOrder startAddon(int customerReference, String productCode,
+                                     String targetSubscriptionRef, LocalDate requestedStartDate) {
+        return startOrder(new StartOrderRequest(CHANGE_ADDON, customerReference, productCode,
+                null, requestedStartDate, targetSubscriptionRef, false, null));
     }
 
     /**
@@ -234,5 +274,16 @@ public class ActivationRestClient {
 
     public record StuckOrderReport(CanonicalOrder order, boolean waitingForCallback,
                                   boolean processRunning, boolean repairableByCallback) {
+    }
+
+    public record StartOrderRequest(
+            String changeType,
+            int customerRef,
+            String productCode,
+            PhoneNumber phoneNumber,
+            LocalDate requestedStartDate,
+            String targetSubscriptionRef,
+            boolean simulateStuck,
+            String provisioningTimeout) {
     }
 }
