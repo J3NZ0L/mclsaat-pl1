@@ -19,7 +19,13 @@ This document outlines the planned milestones, current progress, and future obje
 
 ### 🟡 Week 4
 **Target Date:** `2026-10-07`
-- [ ] fix bugs, fill gaps, decide open questions, correct mistakes, which have surfaced through the review, and which deter me from continuing my work with the next phases
+- [x] Implement missing capabilities, decide open questions, fix broken tests, which have surfaced through the review, and which deter me from continuing my work with the next phases
+  - [x] implement missing, crucial capabilities (ordering and onboarding clients, browserless payInvoice operation)
+  - [x] Decide design question of invoice timing vs UCP checkout
+  - [x] Decide design question of the place of the diagnostic tool
+  - [x] Fix broken PaymentFlowIT and BatchSettlementIT (stripe-mock dropped parameter) tests
+  - [x] Fix that a postgres deadlock commonly hits SubscriptionActivationProcessIT test
+  - [x] Update stale doc references
 - [ ] review the "vibe-coded" legacy system a bit more thoroughly (but quickly, and efficiently)
 
 ### 🔵 Week 5
