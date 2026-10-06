@@ -1,8 +1,22 @@
 # STATUS
 
-_Updated: 2026-10-06 (phase-2 gap 1.3 implemented: system-owned payment closure; gap 1.4 decided: DL-025)_
+_Updated: 2026-10-06 (gap 2.1 decided: DL-026; gap 1.3 implemented: system-owned payment closure; gap 1.4 decided: DL-025)_
 
-## Latest: gap 1.3 — browserless `payInvoice` (branch `bugfix/phase-2-gap-payment-closure`)
+## Latest: gap 2.1 decided (branch `bugfix/phase-2-gap-diagnostic-tool`, docs only)
+* Decision record: `docs/decision-log.md` DL-026. Detection **and** remediation live on a fourth, ops-only
+  MCP server (MCP#4) over `LandscapeDiagnostics`; MCP#1-#3 carry customer tools only; the customer persona
+  never connects to MCP#4; `ops-console` is unchanged. The diagnosis is not a measured tokenomics
+  transaction (decided with the user), which removed the reason for leaving the join to the agent.
+* Found on the way, all recorded in DL-026: the design's placement on MCP#2/#3 cannot see branch A's
+  catalog half (`SUB-2026-000009`); the orphan remedy "terminate in the catalog" has no tool (catalog REST
+  `terminate` exists, `subsystem-clients` has no wrapper); the DL-025 unpaid-order rule has no bulk source in
+  billing or activation. **No code changed**; `mvn verify` was not run because nothing buildable changed.
+* Revisit trigger: if the diagnosis is ever put into the tokenomics measurement, reopen DL-026.
+* Still open: 2.2 (tool count and granularity). Doc drift noticed and not fixed here: `phase2-seams.md` §1
+  still says the shared layer lacks `POST /orders` and a subscriber wrapper (gaps 1.1 and 1.2 closed that),
+  and §3 omits `payInvoice` from the customer-facing billing operations.
+
+## Earlier: gap 1.3 — browserless `payInvoice` (branch `bugfix/phase-2-gap-payment-closure`)
 * New billing SOAP operation `payInvoice` (both XSD copies updated together): confirms the
   PaymentIntent at Stripe, makes the same `OPEN` -> `SETTLEMENT_PENDING` transition as the webhook
   (one shared method in `PaymentService`), cuts the settlement batch. Returns at `SETTLEMENT_PENDING`
@@ -225,16 +239,18 @@ distinguishable decline fault in billing, a fault-injectable decline in `stripe-
 rule for provisioned-but-unpaid orders.
 
 ## Next action
-Gaps 1.1–1.4 are closed (1.4 by decision only). Next: the phase-2 section 2 decisions in
-`docs/phase2-gaps.md`, 2.1 (where the diagnostic tool lives) before any ops MCP server is built and 2.2
-(tool granularity, which the design defers to the tokenomics phase), then phase 2 itself.
+Gaps 1.1-1.4 and 2.1 are closed (1.4 and 2.1 by decision only). Next: gap 2.2 in `docs/phase2-gaps.md`
+(tool count and granularity, which the design defers to the tokenomics phase; DL-026 leaves MCP#4's
+remediation granularity to it), then phase 2 itself, starting with the additive items DL-026 lists: the ops
+server, a catalog terminate wrapper in `subsystem-clients`, and the DL-025 unpaid-order rule with its bulk
+source.
 
 If you are a fresh session picking this up, the useful entry points are:
 
 * `CLAUDE.md` — conventions, the do-not-modify list, and the seven things that look like bugs and are
   the subject matter.
 * `docs/semantic-mismatches.md` — the centrepiece: every data-model disagreement and the test pinning it.
-* `docs/decision-log.md` — 25 entries; read DL-006, DL-009, DL-014 and DL-022 first.
+* `docs/decision-log.md` — 26 entries; read DL-006, DL-009, DL-014 and DL-022 first.
 * `docs/phase2-seams.md` — where MCP, the agents and UCP attach, and what they must not "fix".
 * `docs/phase2-gaps.md` — what the seams doc gets wrong and what phase 2 is still missing.
 

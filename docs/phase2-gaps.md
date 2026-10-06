@@ -13,7 +13,8 @@ design, and places where the docs disagreed with the code.
 
 **Status.** Section 3 has been corrected in `architecture.md` and `phase2-seams.md`, and
 `phase2-seams.md` marks the section 2 items as open. As of 2026-10-06, items 1.1, 1.2 and 1.3 are
-addressed and item 1.4 is decided (DL-025, no code change); section 2 decisions are still open.
+addressed, item 1.4 is decided (DL-025, no code change) and item 2.1 is decided (DL-026, no code
+change); item 2.2 (tool count and granularity) is still open.
 
 ---
 
@@ -98,13 +99,25 @@ The full answers, the rejected options (deferred Payment Term, authorize-then-ca
 acceptance criteria are in [`decision-log.md`](decision-log.md) DL-025. Still to build from this, all
 additive: an optional payment-method element on `payInvoice` so the UCP instrument can reach the charge
 (both XSD copies), a distinguishable decline fault in billing, a fault-injectable decline in
-`stripe-sim`, and an ops diagnostic rule for provisioned-but-unpaid orders.
+`stripe-sim`, and an ops diagnostic rule for provisioned-but-unpaid orders. That rule now has a home:
+it becomes a third finding type in `LandscapeDiagnostics` behind the ops server's diagnose tool
+(DL-026), and needs a bulk source that neither billing nor activation offers today.
 
 ---
 
 ## 2. Decisions the phase-1 docs took ahead of the design
 
-### 2.1 Where the diagnostic tool lives
+### 2.1 Where the diagnostic tool lives — resolved 2026-10-06 (DL-026)
+
+> **Resolved: a fourth, ops-only MCP server over `LandscapeDiagnostics`, carrying both detection and
+> remediation; MCP#1–#3 carry customer tools only.** The diagnosis is not one of the measured tokenomics
+> transactions, which removed the reason for leaving the join to the agent. It also turned out that the
+> design's placement on MCP#2/#3 cannot see the catalog half of failure branch A (the seeded
+> `SUB-2026-000009`), and that the orphan remedy ("terminate in the catalog") has no tool today. The
+> customer persona never connects to the ops server; `ops-console` is unchanged. The answers, the
+> rejected options, the acceptance criteria and the revisit trigger (reopen it if the diagnosis is ever
+> measured) are in [`decision-log.md`](decision-log.md) DL-026. The original finding follows, for the
+> record.
 
 The design places the diagnostic tool on MCP#2 and MCP#3 — the per-subsystem servers for activation
 and billing — reachable only by the ops persona.
@@ -135,6 +148,10 @@ to four distinct actions (force-provision, cancel, reconcile with `RESEND`, reco
 `RE_DRIVE_ACK`) — so ten or eleven in practice.
 
 `phase2-seams.md` §2 now presents its table as one candidate, not the decision.
+
+Interaction with 2.1 (DL-026): the ops tools now sit on one server, MCP#4, so "6+1" is no longer a
+count of one tool per service plus a separate diagnostic; whether MCP#4's remediation is one
+`remediate` tool or several is still this item's question. Not decided there.
 
 ---
 

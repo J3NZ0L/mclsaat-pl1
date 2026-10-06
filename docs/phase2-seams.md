@@ -29,6 +29,8 @@ on 2026-09-30 and not otherwise in the repository, is:
 * **The failure branch is triggered by a diagnostic tool**, because there is no push notification,
   only polling. It lists activations and invoices waiting for confirmation longer than a threshold,
   lives on MCP#2 and MCP#3 (activation and billing), and only the ops persona can reach it.
+  *(Placement superseded by DL-026: the diagnostic and remediation tools live on a fourth, ops-only
+  server. The rest of the bullet, polling only and ops persona only, stands.)*
 * **About 6+1 tools**: one per service plus the diagnostic tool. Final granularity (one tool per
   service, or browse → select → confirm steps) is deliberately left to the tokenomics phase.
 
@@ -85,10 +87,11 @@ Two things this candidate does not settle:
 * **The count is larger than it looks.** It is eight tools, not 6+1, and `ops.remediate` hides four
   distinct actions — force-provision, cancel, reconcile with `RESEND`, reconcile with `RE_DRIVE_ACK` —
   so ten or eleven in practice.
-* **The `ops.*` namespace is effectively a fourth MCP server.** The design has one server per
+* **The `ops.*` namespace is a fourth MCP server — decided (DL-026).** The design has one server per
   subsystem and puts the diagnostic tool on MCP#2 and MCP#3. The cross-subsystem join already exists
-  as one library call (`LandscapeDiagnostics`), which makes an ops server easy to build — but see §6
-  for what that costs. Which of the two to build is open ([`phase2-gaps.md`](phase2-gaps.md) 2.1).
+  as one library call (`LandscapeDiagnostics`), and phase 2 builds an ops-only MCP#4 over it, carrying
+  both detection and remediation; MCP#1–#3 carry customer tools only. The tool names above stay
+  candidates, and so does the count, which is [`phase2-gaps.md`](phase2-gaps.md) 2.2.
 
 ## 3. The ops/customer permission boundary already exists
 
@@ -184,10 +187,12 @@ makes them agent-shaped rather than script-shaped:
 Both judgements depend on context no single query returns. That is the argument for an agent.
 
 It holds for remediation, not for detection. The joins above are already done in one library call,
-`LandscapeDiagnostics`, and the ops console serves each as one endpoint. If an `ops.diagnose` tool
-wraps it, the agent's contribution shrinks to the judgement step, and the tokenomics comparison has
-less translation work to measure. The design's alternative — per-subsystem diagnostic tools on MCP#2
-and MCP#3, with the agent doing the join — keeps the join on the agent's side. Which to build is open
+`LandscapeDiagnostics`, and the ops console serves each as one endpoint. **Decided (DL-026):** the ops
+MCP server wraps that call, so the agent's contribution is the judgement step. The tokenomics
+comparison does not lose anything by it, because the diagnosis is not one of the measured transactions
+(§5). The design's alternative — per-subsystem diagnostic tools on MCP#2 and MCP#3, with the agent
+doing the join — would also have missed the catalog half of branch A, which only the catalog can see.
+If the diagnosis is ever added to the measurement, DL-026 should be reopened
 ([`phase2-gaps.md`](phase2-gaps.md) 2.1).
 
 ## 7. What phase 2 must not "fix"
