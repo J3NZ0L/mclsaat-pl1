@@ -1,8 +1,30 @@
 # STATUS
 
-_Updated: 2026-10-06 (gap 2.1 decided: DL-026; gap 1.3 implemented: system-owned payment closure; gap 1.4 decided: DL-025)_
+_Updated: 2026-10-06 (catalog terminate wrapper added; gap 2.1 decided: DL-026; gap 1.3 implemented: system-owned payment closure; gap 1.4 decided: DL-025)_
 
-## Latest: gap 2.1 decided (branch `bugfix/phase-2-gap-diagnostic-tool`, docs only)
+## Latest: catalog terminate wrapper (branch `bugfix/phase-2-gap-catalog-terminate`)
+* `CatalogSubscriberRestClient.terminateSubscription(subId)` wraps the catalog's existing
+  `POST /api/v1/subscriptions/{subId}/terminate` and returns a `CanonicalSubscription`. Satisfies DL-026
+  criterion 5; `ops-console` and every legacy service are unchanged. The class name predates the method
+  and was kept: it is the one catalog REST client, so a second class would only repeat the HTTP plumbing.
+* One translation for a catalog subscription: `SemanticMappers.fromCatalogSubscription` and
+  `fromCatalogAllowanceMb` now serve both `CatalogJdbcClient` (rows) and the REST wrapper (JSON). The
+  JDBC client's private mapper and `toDataVolume` are gone.
+* Failures: an unknown subscription is a `CatalogClientException` naming `HTTP 404` and the catalog's
+  reason; an unreachable catalog is reported as unreachable. A repeat call is harmless (the catalog is
+  idempotent and returns the row unchanged).
+* Verified: `mvn verify` green for the whole reactor (subsystem-clients 55 tests, 8 new). Run against a
+  live compose stack with a throwaway runner (not committed): terminating a PA subscription and an
+  add-on, the REST-translated result equal to the JDBC-read row, the parent's allowance 56320 -> 51200,
+  a repeat call unchanged, an unknown id giving HTTP 404. `scripts/demo.sh` then passed on a fresh stack
+  (23 checks, exit 0).
+* **Found, not fixed:** `docs/decision-log.md` at HEAD has lost DL-026's heading and body. Commit
+  `d5c7dff` rewrote DL-025's "Expected additive changes" and the edit swallowed the rest of DL-025 (its own
+  "Research basis" too) and DL-026 up to its "Interactions" tail, which is now attached to DL-025. STATUS and `phase2-seams.md` still cite DL-026.
+  The intact entry is in `git show 217be32:docs/decision-log.md` (section `## DL-026`; criterion 5 is its
+  acceptance criterion 5). Restoring it is a separate, deliberate edit.
+
+## Earlier: gap 2.1 decided (branch `bugfix/phase-2-gap-diagnostic-tool`, docs only)
 * Decision record: `docs/decision-log.md` DL-026. Detection **and** remediation live on a fourth, ops-only
   MCP server (MCP#4) over `LandscapeDiagnostics`; MCP#1-#3 carry customer tools only; the customer persona
   never connects to MCP#4; `ops-console` is unchanged. The diagnosis is not a measured tokenomics
@@ -240,11 +262,11 @@ rule for provisioned-but-unpaid orders.
 
 ## Next action
 Gaps 1.1-1.4 and 2.1 are closed (1.4 and 2.1 by decision only; DL-026 is merged into
-`bugfix/phase-2-gaps`). The remaining work, in order, with the phase each item belongs to:
+`bugfix/phase-2-gaps`, but see the note above: its body is missing from `docs/decision-log.md` at HEAD).
+The catalog terminate wrapper (DL-026 criterion 5) is done. The remaining work, in order, with the phase
+each item belongs to:
 
-1. **Add the catalog terminate wrapper to `subsystem-clients`** (DL-026, criterion 5). A leftover
-   phase-1 omission: the ops console recommends "terminate in the catalog" and nothing can do it. Small,
-   and independent of step 2, so it can be done first.
+1. ~~Add the catalog terminate wrapper to `subsystem-clients`~~ — done, see "Latest" above.
 2. **Decide tool count and granularity** (`docs/phase2-gaps.md` 2.2). The first phase-2 task, and it comes
    *before any MCP tool surface is defined*. Run it as research-then-interview with the user: research
    industry guidance and example agent architectures from primary sources (pin versions and dates), ask

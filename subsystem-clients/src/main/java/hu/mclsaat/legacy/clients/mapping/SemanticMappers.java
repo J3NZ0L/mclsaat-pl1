@@ -1,12 +1,17 @@
 package hu.mclsaat.legacy.clients.mapping;
 
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.BatchStatus;
+import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CanonicalSubscription;
+import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CustomerRef;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.InvoiceStatus;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.OrderStatus;
+import hu.mclsaat.legacy.clients.canonical.CanonicalModel.PhoneNumber;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.ProductKind;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.ServiceKind;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.SubscriptionStatus;
+import hu.mclsaat.legacy.clients.canonical.DataVolume;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -133,6 +138,40 @@ public final class SemanticMappers {
             throw new IllegalArgumentException(
                     what + " must be formatted " + pattern + ", was: " + value);
         }
+    }
+
+    // ------------------------------------------------------------------ subscription
+
+    /**
+     * The catalog's {@code data_allowance_mb}: a megabyte count, with {@code -1} meaning unmetered.
+     * The sentinel is the catalog's own; it must never reach a caller as a negative volume.
+     */
+    public static DataVolume fromCatalogAllowanceMb(int megabytes) {
+        return megabytes == CATALOG_UNMETERED_MB ? DataVolume.unmetered() : DataVolume.ofMegabytes(megabytes);
+    }
+
+    /**
+     * One catalog subscription, from its raw columns.
+     *
+     * <p>The catalog hands out the same row twice, as a JDBC result set and as a REST view with other
+     * Java types. Both read paths come through here so the status code, the padded {@code CHAR(8)}
+     * customer number and the unmetered sentinel are translated by exactly one implementation.
+     */
+    public static CanonicalSubscription fromCatalogSubscription(
+            String subId, String custNo, String planCode, String statusCode, LocalDate activatedOn,
+            String msisdn, String simIccid, int dataAllowanceMb, String parentSubId, Instant updatedAt) {
+        return new CanonicalSubscription(
+                subId,
+                CustomerRef.of(fromCatalogCustNo(custNo)),
+                planCode,
+                fromCatalogStatusCode(statusCode),
+                statusCode == null ? null : statusCode.trim(),
+                activatedOn,
+                PhoneNumber.of(msisdn),
+                simIccid,
+                fromCatalogAllowanceMb(dataAllowanceMb),
+                parentSubId,
+                updatedAt);
     }
 
     // -------------------------------------------------------------------- status

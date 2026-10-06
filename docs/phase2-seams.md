@@ -45,9 +45,10 @@ The library holds three things:
 * a **canonical model** — `Money`, `DataVolume`, `CanonicalPlan`, `CanonicalSubscription`,
   `CanonicalInvoice`, … — which belongs to none of the three subsystems;
 * **`SemanticMappers`**, the single place every legacy dialect is translated to and from it;
-* one client per protocol: `CatalogJdbcClient` (direct SQL), `ActivationRestClient`,
-  `BillingSoapClient`, `BatchFileClient`. There is no shared catalog REST client — activation's
-  `CatalogRestClient` is its own (DL-009) — so through this layer the catalog is direct SQL only.
+* one client per protocol: `CatalogJdbcClient` (direct SQL, read-only), `CatalogSubscriberRestClient`
+  (the catalog's REST writes: `createSubscriber`, `terminateSubscription`), `ActivationRestClient`,
+  `BillingSoapClient`, `BatchFileClient`. Activation's `CatalogRestClient` is its own (DL-009) and is not
+  this one; catalog reads through this layer are direct SQL only.
 
 An MCP server for this landscape should depend on `subsystem-clients` and expose its canonical model
 as tool schemas. It should *not* talk to the three services directly, and it should not re-derive the
