@@ -239,11 +239,16 @@ distinguishable decline fault in billing, a fault-injectable decline in `stripe-
 rule for provisioned-but-unpaid orders.
 
 ## Next action
-Gaps 1.1-1.4 and 2.1 are closed (1.4 and 2.1 by decision only). Next: gap 2.2 in `docs/phase2-gaps.md`
-(tool count and granularity, which the design defers to the tokenomics phase; DL-026 leaves MCP#4's
-remediation granularity to it), then phase 2 itself, starting with the additive items DL-026 lists: the ops
-server, a catalog terminate wrapper in `subsystem-clients`, and the DL-025 unpaid-order rule with its bulk
-source.
+Gaps 1.1-1.4 and 2.1 are closed (1.4 and 2.1 by decision only; DL-026 is merged into
+`bugfix/phase-2-gaps`). Nothing blocks starting phase 2, and it **starts with a decision, not code**:
+
+1. **First, decide tool count and granularity** (`docs/phase2-gaps.md` 2.2). Do this *before* defining any
+   MCP tool surface. Run it as research-then-interview with the user: research industry guidance and
+   example agent architectures from primary sources (pin versions and dates), ask the user one question
+   at a time, record the answer as the next free DL entry. A proposed starting point is written in 2.2;
+   the user has not confirmed it, so do not build on it silently.
+2. **Then build**, from the DL-026 list: the ops MCP server (MCP#4), a catalog terminate wrapper in
+   `subsystem-clients`, and the DL-025 unpaid-order rule with its bulk source.
 
 If you are a fresh session picking this up, the useful entry points are:
 
