@@ -467,144 +467,22 @@ researched.
 
 ### Expected additive changes (none is done by this decision)
 
-* **A distinguishable decline in billing.** In `PaymentService.payInvoiceNow` (1.3) a confirm that does not succeed throws
-  `IllegalState`, a SOAP fault with prose only, and the invoice stays `OPEN`. A retry is therefore safe,
-  but a decline cannot be told from other `IllegalState` faults (a cancelled invoice, say) without
-  parsing text. The bounded-retry loop of Q8 works either way; the explicit failure message needs a code.
-* **A fault-injectable decline in `stripe-sim`.**
-* **An optional payment-method element on `payInvoiceRequest`** (see below).
-* **An ops diagnostic rule** for "`PROVISIONED`, invoice `OPEN` beyond a threshold".
+Listed in the order they should be done, with the phase each one logically belongs to:
 
-### Research basis and its limits
-
-UCP release `v2026-08-25`, read from the raw schemas at that git tag and from the docs site. Verified in
-the schemas: the status enum includes `complete_in_progress`; `payment` is required on complete;
-Payment Terms is in the release; the Order has `adjustments[]` and `messages[]` but no payment status.
-The prose on polling behaviour and on the silence about post-acceptance declines came through a
-summarising fetch and should be re-read in the spec before the adapter is built.
-
-### Forward dependencies and a known gap
-
-* **The instrument must reach the charge.** Complete Checkout requires `payment.instruments` in every
-  option, but `payInvoice` takes only `invoiceNo` and charges `pm_card_visa` (DL-024). The adapter will
-  need an optional payment-method element on `payInvoiceRequest`, added to both XSD copies together
-  (`BillingContractCopyTest`). It is additive and breaks nothing; until then the test card stands in.
-* **Known gap: buyer view versus system state after a decline.** The buyer sees `canceled` while the
-  SIM may be live and the invoice open. Closing it means a billing cancel-invoice operation and an ops
-  action to terminate a provisioned subscription. Not built; a candidate third failure branch.
-
-## DL-026 — Gap 2.1: detection and remediation live on a fourth, ops-only MCP server over `LandscapeDiagnostics`
-
-Closes gap 2.1 of [`phase2-gaps.md`](phase2-gaps.md). Decided with the user on 2026-10-06, as a
-research-then-interview exercise. **No code changed.** It fixes where the ops persona's tools live, and
-it departs from the one placement the user's own sketch gave: "the diagnostic tool on MCP#2 and MCP#3"
-([`phase2-seams.md`](phase2-seams.md) §0). The reasons the sketch no longer holds are below.
-
-**Decision.** Phase 2 builds one more MCP server, **MCP#4 `ops`**, ops persona only, on top of
-`subsystem-clients`. It carries both halves of service 6:
-
-| Half | Tools | Backed by |
-| --- | --- | --- |
-| Detect | one diagnose tool covering stuck activations, unconfirmed batches and (later) the DL-025 unpaid-order rule | `LandscapeDiagnostics`, unchanged |
-| Resolve | force-provision, cancel, reconcile (`RESEND` / `RE_DRIVE_ACK`), terminate catalog subscription (new) | the existing ops clients, plus one new wrapper |
-
-MCP#1–#3 carry **customer tools only**. The customer persona never connects to MCP#4. The ops persona
-connects to all four, as `INITIAL_DESIGN.md` describes ("the same chat infrastructure, wider
-permissions"). How many tools MCP#4 exposes, and whether remediation is one `remediate` with an action
-argument or separate tools, is **not decided here**; that is gap 2.2.
-
-### Answers to the decision questions
-
-| # | Question | Answer | Source of the answer |
-| --- | --- | --- | --- |
-| Q1 | Is the diagnosis a measured tokenomics transaction? | **No.** The measured transactions stay the three in seams §5. Diagnosis and remediation demonstrate the agent's value but are outside the token and latency comparison. | user |
-| Q2 | How binding is the original "diagnostic on MCP#2/#3, agent does the join" sketch? | Not binding on placement. Its stated motive (leave the join to the agent so the measurement has more to measure) falls with Q1, and its placement cannot see the catalog half of branch A (see below). | user, with the code findings |
-| Q3 | Where does the cross-subsystem join happen? | In `LandscapeDiagnostics`, in code, before the agent sees a finding. The agent still owns the judgement step: force-provision vs cancel, `RESEND` vs `RE_DRIVE_ACK`. | user |
-| Q4 | Where do remediation tools live? | On MCP#4, beside diagnosis. See-vs-act is split by persona allowlist, for example a triage persona that drops the act tools. | user |
-| Q5 | What triggers detection? | The ops persona, on demand, with the existing thresholds (`olderThanMinutes`; billing's own default for batches). There is no scheduler and no push. | pre-answered from the design ("only polling"), not overruled |
-| Q6 | Can the customer persona see the diagnostic tools? | No. MCP#4 is not in its server list. As a second line, its configuration also disallows the ops tools (see criterion 2 for the form). | pre-answered, not overruled |
-| Q7 | What happens to `ops-console`? | Unchanged. It is the human-facing surface over the same library, `demo.sh` drives detection through it (lines 304, 402, 462), and it holds the direct-JDBC interface style (`AGENTS.md` §3.4). MCP#4 and `ops-console` share logic by sharing `LandscapeDiagnostics`, not by one calling the other. | pre-answered, not overruled |
-| Q8 | Are fault injection and `export-batch` agent tools? | No. They are demo controls on `ops-console`'s remediation controller. | pre-answered, not overruled |
-| Q9 | Is any legacy service changed by this decision? | No, for branches A and B. Every primitive already exists. This is not a discriminator between the options. | code |
-
-### Code findings the decision rests on
-
-* **Branch A's catalog half is invisible to MCP#2/#3.** `ORPHANED_PENDING_SUBSCRIPTION`, which includes
-  the seeded `SUB-2026-000009` that `demo.sh` shows, is a catalog row with no activation order behind it
-  (`LandscapeDiagnostics.stuckActivations`, final loop). A diagnostic on activation and billing alone
-  cannot see it. The force-provision-versus-cancel decision does not need the catalog (activation reports
-  `repairableByCallback` and `processRunning` itself); the catalog adds the "customer pays for a service
-  that is not live" consequence and the orphan category.
-* **Branch B is not a cross-subsystem join.** Billing's batch table (SOAP) and the settlement files in
-  billing's own outbox are both subsystem 3. Whether the agent or the server joins them is a granularity
-  question inside one server, which is gap 2.2.
-* **The orphan remedy has no tool.** The diagnosis tells ops to "terminate in the catalog and re-order".
-  The catalog's REST `POST /subscriptions/{subId}/terminate` exists, but `subsystem-clients` has no
-  wrapper for it, `ops-console` has no endpoint, and the catalog JDBC pool is read-only by design. The
-  diagnosis recommends an action that no tool can perform.
-* **The DL-025 unpaid-order rule has no bulk source** on either side. `getInvoices` requires exactly one
-  of `billingAccountNo` and `customerRef`, and activation's only bulk listing is `stuck-orders`
-  (`STUCK` and `AWAITING_PROVISIONING`); its other lookups are per order or per customer. The rule needs an additive legacy query whichever option is chosen, so it did not tilt the
-  decision.
-* **The brief does not put the diagnosis in the measurement.** `PROJECT_DESC_HUN.md` says the comparison
-  is on "the same business transaction" and lists error handling (*hibakezelés*) among the agent's tasks,
-  but names no diagnostic. `INITIAL_DESIGN.md` describes service 6 as "kizárólag a belső ops-kliens
-  tool-ja" (exclusively the internal ops client's tool), which fits a server only the ops persona
-  connects to.
-
-### Rejected
-
-* **Per-subsystem diagnostic tools, the agent joining (the original sketch).** Rejected on engineering
-  merit once Q1 removed its measurement rationale. It needs an ops tool on MCP#1 as well (the sketch had
-  none), up to five detection tools at the current granularity, leaves the three-way categorisation
-  (`STUCK_PROCESS` / `ORPHANED_STUCK_ORDER` / `ORPHANED_PENDING_SUBSCRIPTION`) to the model before an
-  irreversible `cancel`, and relies on persona configuration alone to keep destructive tools away from
-  the customer persona. It remains the better arrangement **if the diagnosis is ever put into the
-  measurement**; see the revisit trigger below.
-* **A composite diagnose on MCP#2 that reaches the catalog itself.** Keeps three servers but makes the
-  activation server read the catalog's schema, a cross-subsystem dependency inside a "per-subsystem"
-  server, and puts an ops composite beside customer tools.
-* **Remediation on the owning subsystem servers.** Puts destructive ops tools on the customer-facing
-  servers, which undoes the structural boundary this decision buys.
-* **A separate remediation server (MCP#5).** A structural read-only persona, at the price of a fifth
-  process for a single-developer PoC (`AGENTS.md` §8: simplicity). A triage persona gets the same effect
-  from the allowlist.
-
-### Acceptance criteria for the implementation (non-negotiable)
-
-1. **MCP#4 depends on `subsystem-clients`, not on `ops-console`'s REST**, and does not re-derive any
-   translation (seams §1; DL-009 stays as it is). `LandscapeDiagnostics` is reused, not reimplemented, and
-   `ops-console` keeps working unchanged: `scripts/demo.sh` still passes.
-2. **The customer persona has no route to MCP#4.** A test asserts that the customer persona's server list
-   excludes it and that its configuration also disallows the ops tools (per-tool `mcp__ops__<tool>`
-   names; the server-level wildcard only where the persona is a subagent definition). Tool annotations are not the boundary:
-   MCP treats them as untrusted hints.
-3. **Diagnosis never acts.** The diagnose tool is read-only and returns the existing categories,
-   `repairableByCallback`, `settlementFilePresent` and the suggested remedy as a suggestion. Every
-   remediation tool is a separate act by the agent.
-4. **Consequences travel with the tool.** Each remediation tool's description states what it asserts and
-   whether it can be undone. `cancel` is irreversible (DL-008) and marked destructive. A `RESEND` or
-   `RE_DRIVE_ACK` choice is the agent's, never defaulted silently.
-5. **The orphan remedy exists before the text that recommends it is reachable.** A wrapper for the
-   catalog's REST terminate is added to `subsystem-clients` (the JDBC pool stays read-only), or the
-   diagnosis text stops recommending it.
-6. **Both seeded failures are found end to end**, from a cold start, through MCP#4: `SUB-2026-000009` (as
-   `ORPHANED_PENDING_SUBSCRIPTION`) and `BATCH-20260925-001`, and a triggered stuck order and stranded
-   batch are found and resolved with the same results `demo.sh` checks today.
-7. **MCP#4 reaches what `ops-console` reaches, with the same limits:** a read-only catalog database role
-   and the billing outbox mounted. No write through direct JDBC.
-8. **Fault injection and `export-batch` are not exposed as agent tools.**
-9. **Idempotency is preserved.** Repeating force-provision, reconcile or terminate behaves
-   as the underlying operation already does (`AGENTS.md` §7).
-
-### Expected additive changes (none is done by this decision)
-
-* **MCP#4 itself:** one server module over `subsystem-clients`.
-* **A catalog terminate wrapper** in `subsystem-clients` (criterion 5).
-* **The DL-025 rule**, now with a home: a third finding type in `LandscapeDiagnostics` for "`PROVISIONED`,
-  invoice `OPEN` beyond a threshold". It needs a bulk source, most likely an additive billing query for
-  open invoices across accounts (both XSD copies together, `BillingContractCopyTest`), joined to order
-  status through activation. Not designed here.
+1. **A catalog terminate wrapper in `subsystem-clients` (criterion 5). A leftover phase-1 omission.**
+   Phase 1's ops console diagnoses an orphaned subscription and recommends "terminate in the catalog",
+   but nothing can do it: the catalog's REST `terminate` exists and the shared layer has no wrapper. It
+   is the same kind of gap as 1.1 and 1.2, is independent of the granularity decision (2.2), and is
+   small. It must exist before the ops server's remediation is complete.
+2. **MCP#4 itself, a phase-2 task:** one server module over `subsystem-clients`. Its tool surface follows
+   the granularity decision (2.2), which is the first task of phase 2 and comes before any tool is defined.
+3. **The DL-025 rule, deferred to phase 3 with the UCP adapter.** It becomes a third finding type in
+   `LandscapeDiagnostics` for "`PROVISIONED`, invoice `OPEN` beyond a threshold", surfaced through the
+   diagnose tool. The failure it detects is a declined UCP charge, which cannot happen until the adapter
+   exists, so nothing in phase 2 needs it. It needs a bulk source that is legacy-system work in the style
+   of phase 1, most likely an additive billing query for open invoices across accounts (both XSD copies
+   together, `BillingContractCopyTest`), joined to order status through activation. Not designed here.
+   Whether the chat channel can also produce the same unpaid state was not checked.
 
 ### Interactions with other open items (recorded, not decided)
 

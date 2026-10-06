@@ -240,15 +240,19 @@ rule for provisioned-but-unpaid orders.
 
 ## Next action
 Gaps 1.1-1.4 and 2.1 are closed (1.4 and 2.1 by decision only; DL-026 is merged into
-`bugfix/phase-2-gaps`). Nothing blocks starting phase 2, and it **starts with a decision, not code**:
+`bugfix/phase-2-gaps`). The remaining work, in order, with the phase each item belongs to:
 
-1. **First, decide tool count and granularity** (`docs/phase2-gaps.md` 2.2). Do this *before* defining any
-   MCP tool surface. Run it as research-then-interview with the user: research industry guidance and
-   example agent architectures from primary sources (pin versions and dates), ask the user one question
-   at a time, record the answer as the next free DL entry. A proposed starting point is written in 2.2;
-   the user has not confirmed it, so do not build on it silently.
-2. **Then build**, from the DL-026 list: the ops MCP server (MCP#4), a catalog terminate wrapper in
-   `subsystem-clients`, and the DL-025 unpaid-order rule with its bulk source.
+1. **Add the catalog terminate wrapper to `subsystem-clients`** (DL-026, criterion 5). A leftover
+   phase-1 omission: the ops console recommends "terminate in the catalog" and nothing can do it. Small,
+   and independent of step 2, so it can be done first.
+2. **Decide tool count and granularity** (`docs/phase2-gaps.md` 2.2). The first phase-2 task, and it comes
+   *before any MCP tool surface is defined*. Run it as research-then-interview with the user: research
+   industry guidance and example agent architectures from primary sources (pin versions and dates), ask
+   one question at a time, record the answer as the next free DL entry. A proposed starting point is
+   written in 2.2; the user has not confirmed it, so do not build on it silently.
+3. **Build the ops MCP server (MCP#4)**, phase 2, with the tool surface from step 2.
+4. **Deferred to phase 3: the DL-025 unpaid-order rule** and its bulk billing query. It detects a declined
+   UCP charge, so it waits for the UCP adapter.
 
 If you are a fresh session picking this up, the useful entry points are:
 

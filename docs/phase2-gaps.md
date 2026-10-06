@@ -102,7 +102,8 @@ additive: an optional payment-method element on `payInvoice` so the UCP instrume
 (both XSD copies), a distinguishable decline fault in billing, a fault-injectable decline in
 `stripe-sim`, and an ops diagnostic rule for provisioned-but-unpaid orders. That rule now has a home:
 it becomes a third finding type in `LandscapeDiagnostics` behind the ops server's diagnose tool
-(DL-026), and needs a bulk source that neither billing nor activation offers today.
+(DL-026), and needs a bulk source that neither billing nor activation offers today. It detects a declined
+UCP charge, so it is deferred to phase 3 with the UCP adapter.
 
 ---
 
