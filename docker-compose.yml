@@ -52,11 +52,35 @@ services:
       retries: 20
       start_period: 10s
 
-  # The official Stripe mock. Answers with canned, correctly shaped data and remembers nothing, which
-  # is enough for creating PaymentIntents. The stripe-sim module is the stateful local alternative;
-  # see docs/decision-log.md DL-011.
+  # The Stripe stand-in: the stateful stripe-sim module. The browserless payInvoice operation has to
+  # see a confirmed PaymentIntent report "succeeded", and the official stripe-mock is stateless - it
+  # reports whatever status its canned fixture carries, whatever was confirmed. See DL-024.
+  stripe-sim:
+    build:
+      <<: *build-from-reactor
+      args:
+        MODULE: stripe-sim
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
+    environment:
+      STRIPE_SIM_PORT: 12111
+    ports:
+      - "12111:12111"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/12111 && printf 'GET /actuator/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # The official Stripe mock, still available for anyone who wants to point billing at it:
+  #   docker compose --profile official-stripe-mock up stripe-mock
+  # plus STRIPE_API_BASE=http://stripe-mock:12111 on billing-service. It can create PaymentIntents but
+  # cannot complete one, so payInvoice and the demo's happy path will not close against it.
   stripe-mock:
     image: stripe/stripe-mock:latest
+    profiles: ["official-stripe-mock"]
     ports:
       - "12111:12111"
 
@@ -100,6 +124,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      stripe-sim:
+        condition: service_healthy
     environment:
       BILLING_PORT: 8083
       BILLING_DB_URL: jdbc:postgresql://postgres:5432/billingdb
@@ -107,7 +133,7 @@ services:
       BILLING_DB_PASSWORD: billing_app
       # The key has to be alphanumeric after the sk_test_ prefix: stripe-mock validates its shape.
       STRIPE_API_KEY: sk_test_mclsaat123
-      STRIPE_API_BASE: http://stripe-mock:12111
+      STRIPE_API_BASE: ${STRIPE_API_BASE:-http://stripe-sim:12111}
       BATCH_OUTBOX_DIR: /var/lib/legacy/batch-exchange/outbox
       BATCH_INBOX_DIR: /var/lib/legacy/batch-exchange/inbox
       BATCH_ARCHIVE_DIR: /var/lib/legacy/batch-exchange/archive

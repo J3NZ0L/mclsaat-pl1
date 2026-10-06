@@ -1,6 +1,29 @@
 # STATUS
 
-_Updated: 2026-10-05 (phase-2 gap implementation started)_
+_Updated: 2026-10-06 (phase-2 gap 1.3 implemented: system-owned payment closure)_
+
+## Latest: gap 1.3 — browserless `payInvoice` (branch `bugfix/phase-2-gap-payment-closure`)
+* New billing SOAP operation `payInvoice` (both XSD copies updated together): confirms the
+  PaymentIntent at Stripe, makes the same `OPEN` -> `SETTLEMENT_PENDING` transition as the webhook
+  (one shared method in `PaymentService`), cuts the settlement batch. Returns at `SETTLEMENT_PENDING`
+  with a `batchId`; `PAID` still needs the clearing house ack. `startPayment` and `/webhook/stripe`
+  are unchanged. `BillingSoapClient.payInvoice` exposes it. See DL-024.
+* Compose now runs `stripe-sim` (stateful); the official `stripe-mock` is the opt-in profile
+  `official-stripe-mock`. The Stripe SDK is configured per request, and PaymentIntents use
+  `automatic_payment_methods` because `stripe-mock:latest` had dropped `payment_method_types`
+  (that broke `PaymentFlowIT`/`BatchSettlementIT` on a clean checkout).
+* `scripts/demo.sh` no longer confirms at Stripe or posts a webhook; failure branch B uses `payInvoice`
+  with the clearing house silenced.
+* `mvn verify` green twice in a row: billing 34 ITs (6 new `PayInvoiceIT`), subsystem-clients 47 tests
+  (3 new), activation 16 ITs. The activation drain helper now also retries a PostgreSQL deadlock
+  (pre-existing intermittent: seen on the untouched baseline too).
+* Verified by running it: `docker compose up --build` (all containers healthy, including the new
+  `stripe-sim`), `scripts/demo.sh` full run 21+ checks exit 0, and the `happy`, `batch`, `stuck`
+  submodes each exit 0 on a fresh stack. A raw `curl` SOAP `payInvoice` went `SETTLEMENT_PENDING` ->
+  `PAID` in ~2s with no webhook in billing's log; a repeat call returned `changed=false`; an unknown
+  invoice gave a `NOT_FOUND` fault.
+* Still open: gap 1.4 (activate-then-bill), phase-2 section 2 decisions.
+
 
 ## Where we are
 **Phase 1 is complete.** All fourteen tasks done, everything verified by actually running it.

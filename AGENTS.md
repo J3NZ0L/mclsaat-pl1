@@ -97,8 +97,9 @@ and the documentation in the same commit, and record it in the decision log.
 4. **`ops-console` reaches into the catalog's schema over direct JDBC.** No API, just SQL against
    another subsystem's tables. This is one of the four required interface styles.
 
-5. **`stripe-sim` exists alongside `stripe/stripe-mock`** (DL-011). Not redundancy: the official mock
-   is stateless, and the local path needs a `confirm` that actually changes a status.
+5. **`stripe-sim` exists alongside `stripe/stripe-mock`** (DL-011, DL-024). Not redundancy: the official
+   mock is stateless, and `payInvoice` needs a `confirm` that actually changes a status, so compose and
+   the local path both run `stripe-sim`.
 
 6. **Order numbers are query parameters, not path variables.** They contain slashes
    (`ORD/2026/0000001`), Tomcat rejects an encoded `%2F`, and decoding it splits the order number into
