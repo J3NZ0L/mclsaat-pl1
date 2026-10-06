@@ -119,7 +119,7 @@ than bugs.
 | [`docs/decision-log.md`](docs/decision-log.md) | what was decided and why, including the deliberate ugliness |
 | [`docs/phase2-seams.md`](docs/phase2-seams.md) | where MCP, the agents and UCP attach |
 | [`docs/phase2-gaps.md`](docs/phase2-gaps.md) | what phase 1 is still missing for phase 2, and open decisions |
-| [`CLAUDE.md`](CLAUDE.md) | for future Claude Code sessions, incl. the do-not-modify list |
+| [`AGENTS.md`](AGENTS.md) | for future coding-agent sessions, incl. the do-not-modify list |
 | [`docs/superpowers/`](docs/superpowers/) | the build plan and its live status |
 
 `PROJECT_DESC_HUN.md`, `INITIAL_DESIGN.md`, `TODOS.md` and `PROGRESS_DIARY.md` are the user's own

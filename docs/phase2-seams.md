@@ -58,11 +58,13 @@ DL-009) and the one phase 2 exists to fix.
 `ops-console` is the worked example: it is a consumer of exactly this layer, doing exactly the kind of
 cross-subsystem work an agent will do.
 
-**The layer is not complete for phase 2.** It was built for the ops console, so it covers what ops
-needs and not what a customer does: `ActivationRestClient` has no method for `POST /orders` (services
-2 and 4), and nothing wraps the catalog's `POST /api/v1/subscribers`, which a new buyer needs before
-activation will accept an order. Both have to be added before the customer persona or the UCP adapter
-can be built on it ([`phase2-gaps.md`](phase2-gaps.md) 1.1, 1.2).
+**The layer now covers the customer flow too.** It was originally built for the ops console, so it
+covered what ops needs and not what a customer does. The three gaps that left are closed:
+`ActivationRestClient.startOrder` and its typed helpers place an order (services 2 and 4,
+[`phase2-gaps.md`](phase2-gaps.md) 1.1), `CatalogSubscriberRestClient.createSubscriber` onboards the
+new buyer an order needs first (1.2), and `terminateSubscription` gives the orphan remedy a tool at
+last (DL-026 criterion 5). The customer persona and the UCP adapter can be built on the layer as it
+stands; what phase 2 still lacks is a decision, not a method (§2).
 
 ## 2. Six services, and one candidate tool mapping
 
@@ -100,8 +102,8 @@ Two things this candidate does not settle:
 There is no authentication in this system (`decision-log.md` DL-012) but the *boundary* is modelled,
 by path and by operation:
 
-* customer-facing: `/api/v1/**`, `/activation/v1/orders/**`, billing's `getInvoices` /
-  `startPayment`;
+* customer-facing: `/api/v1/**`, `/activation/v1/orders/**`, billing's `getInvoices`,
+  `startPayment` and `payInvoice` (DL-024: the browserless half of the same customer action);
 * ops-only: `/activation/v1/ops/**`, the whole of `ops-console`, and billing's
   `exportPaymentBatch` / `listUnconfirmedBatches` / `getPaymentBatch` / `reconcileBatch`;
 * fault injection, which is neither: `/sim/clearing-house/config`,
@@ -209,5 +211,5 @@ being measured:
 3. **The identifier-space mismatch** (`"00000042"` / `42` / `"BA-00042"`). An MCP layer should hide
    it, not eliminate it.
 
-`CLAUDE.md` repeats this list, because it is the easiest thing for a future session to tidy away by
-accident.
+[`AGENTS.md`](../AGENTS.md) §3 repeats this list, because it is the easiest thing for a future session
+to tidy away by accident.

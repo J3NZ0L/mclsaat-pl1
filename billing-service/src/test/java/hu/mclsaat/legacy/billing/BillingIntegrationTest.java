@@ -17,13 +17,21 @@ public abstract class BillingIntegrationTest {
                     .withPassword("billing_app");
 
     /**
-     * The official Stripe mock, the same image docker compose runs. The payment tests therefore
-     * exercise the real Stripe Java SDK against a real Stripe-shaped HTTP server rather than a
-     * hand-written stub, which is the only way to find out whether swapping in a real key would
-     * actually work.
+     * The official Stripe mock, the same image the {@code official-stripe-mock} compose profile
+     * runs. The payment tests therefore exercise the real Stripe Java SDK against a real
+     * Stripe-shaped HTTP server rather than a hand-written stub, which is the only way to find out
+     * whether swapping in a real key would actually work.
+     *
+     * <p>Pinned, because {@code stripe-mock} is generated from the live Stripe OpenAPI spec and
+     * {@code :latest} therefore moves the API under a checkout that has not changed: it dropped
+     * {@code payment_method_types}, and this class's tests started failing on a clean clone of a
+     * green commit. Keep the tag in step with {@code docker-compose.yml}'s {@code stripe-mock}
+     * service, and raise both deliberately. See DL-024.
      */
+    static final String STRIPE_MOCK_IMAGE = "stripe/stripe-mock:v0.206.0";
+
     static final GenericContainer<?> STRIPE_MOCK =
-            new GenericContainer<>("stripe/stripe-mock:latest").withExposedPorts(12111);
+            new GenericContainer<>(STRIPE_MOCK_IMAGE).withExposedPorts(12111);
 
     static {
         POSTGRES.start();

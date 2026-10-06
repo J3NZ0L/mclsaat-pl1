@@ -78,8 +78,11 @@ services:
   #   docker compose --profile official-stripe-mock up stripe-mock
   # plus STRIPE_API_BASE=http://stripe-mock:12111 on billing-service. It can create PaymentIntents but
   # cannot complete one, so payInvoice and the demo's happy path will not close against it.
+  # Pinned, not :latest. stripe-mock tracks the live Stripe OpenAPI spec, so :latest silently
+  # changes the API this project is written against: it dropped payment_method_types and broke the
+  # payment integration tests on a checkout that had not changed a line. See DL-024.
   stripe-mock:
-    image: stripe/stripe-mock:latest
+    image: stripe/stripe-mock:v0.206.0
     profiles: ["official-stripe-mock"]
     ports:
       - "12111:12111"

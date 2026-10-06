@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Guidance for future Claude Code sessions in this repository.
 
@@ -171,8 +171,9 @@ Whoever writes the code does not get to certify it. **Run it**, do not only look
 | A rejected order stays in `RECEIVED` with no reason | An unhandled `BpmnError` from an async service task rolls the transaction back, taking the status write with it. The reject path has an error boundary event and a separate `markRejected` delegate |
 | A `PT5S` timer fires at t+13s | Flowable polls for due timer jobs every 10s by default; `flowable.process.async.executor.default-timer-job-acquire-wait-time: PT1S` |
 | `stripe-mock` rejects the API key with `AuthenticationException` | The key must be alphanumeric after `sk_test_`. `sk_test_mclsaat123` works, `sk_test_mclsaat_local` does not |
+| Billing payment ITs fail on a checkout that has not changed | `stripe-mock` is generated from the live Stripe OpenAPI spec, so `:latest` moves the API under you — it dropped `payment_method_types`. Pinned to `v0.206.0` in `BillingIntegrationTest` **and** the `official-stripe-mock` compose profile; raise the two together (DL-027) |
 | Activation ITs hang waiting for a callback | The simulated platform calls back over real HTTP, so the tests use `DEFINED_PORT` (18082), not `RANDOM_PORT` (DL-015) |
-| Flowable ITs fail on mock verifications at random | The shared job executor runs leftover instances from earlier tests. `SubscriptionActivationProcessIT` drains them in `@BeforeEach`, retrying on optimistic-locking collisions |
+| Flowable ITs fail on mock verifications at random, or log `deadlock detected` | The shared job executor keeps driving instances earlier tests left behind. `SubscriptionActivationProcessIT` drains them in `@AfterEach` and `@BeforeEach`, and stops the job executor and waits for the execution tree to go quiet first — deleting alongside a running job deadlocks on `ACT_RU_EXECUTION` (DL-027) |
 
 ---
 

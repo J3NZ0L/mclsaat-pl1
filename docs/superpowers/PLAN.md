@@ -146,7 +146,8 @@ Known divergences from this plan, all deliberate and all in the decision log:
 * **T12** *(done)* `scripts/demo.sh`: end-to-end happy path + both failure branches, run and captured.
 * **T13** *(done)* Docs: `docs/architecture.md`, `docs/api-reference.md`, `docs/run-guide.md`,
   `docs/decision-log.md`, `docs/semantic-mismatches.md`, `docs/phase2-seams.md`.
-* **T14** *(done)* `CLAUDE.md` (incl. the do-not-modify list), README, final verification pass, PR ready.
+* **T14** *(done)* `AGENTS.md`, named CLAUDE.md at the time (incl. the do-not-modify list), README,
+  final verification pass, PR ready.
 
 ## 5. Phase-2 seams (designed for, not built)
 

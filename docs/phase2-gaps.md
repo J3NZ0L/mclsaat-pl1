@@ -21,7 +21,7 @@ change); item 2.2 (tool count and granularity) is deliberately not decided in ph
 
 ## 1. Blocks phase 2
 
-### 1.1 The shared layer cannot place an order
+### 1.1 The shared layer cannot place an order — **addressed 2026-10-05**
 
 `ActivationRestClient` in `subsystem-clients` can now place orders through
 `POST /activation/v1/orders` via `startOrder` plus typed helpers for new subscriptions, plan changes
@@ -36,12 +36,12 @@ Coverage of the six services through `subsystem-clients`:
 | 2 | Start subscription | yes |
 | 3 | Poll order status | yes |
 | 4 | Plan change / add-on | yes |
-| 5 | Invoice query + start payment | yes |
+| 5 | Invoice query + pay | yes (`startPayment` and `payInvoice`, see 1.3) |
 | 6 | Detect and resolve | yes |
 
 Services 2 and 4 are the core MCP tools of the customer persona and the core call of the UCP adapter.
 
-### 1.2 A new customer cannot be onboarded
+### 1.2 A new customer cannot be onboarded — **addressed 2026-10-05**
 
 `validateOrder` rejects an unknown `customerRef`
 ([`ValidateOrderDelegate.java`](../activation-service/src/main/java/hu/mclsaat/legacy/activation/process/ValidateOrderDelegate.java)),
@@ -49,8 +49,8 @@ so a subscriber must already exist in the catalog. `subsystem-clients` now wraps
 `POST /api/v1/subscribers` in `CatalogSubscriberRestClient`, so a UCP adapter can onboard first and
 then place the activation order.
 
-Billing is not the problem: it opens a billing account lazily on the first invoice
-(`InvoiceService.openAccount`). Only the catalog side is missing.
+Billing was never the problem: it opens a billing account lazily on the first invoice
+(`InvoiceService.openAccount`). The catalog side was the only missing half, and it is now covered.
 
 ### 1.3 The payment loop is closed by the demo script, not by the system — **addressed 2026-10-06**
 
@@ -205,7 +205,8 @@ the repository:
 * "two entry points, not two agents".
 
 Where phase 1 agrees with these, it agrees by coincidence rather than because it was built against
-them. `INITIAL_DESIGN.md` is read-only (see `CLAUDE.md` §2) and is not to be edited to close this gap.
+them. `INITIAL_DESIGN.md` is read-only (see [`AGENTS.md`](../AGENTS.md) §2) and is not to be edited to close
+this gap.
 
 *Corrected:* `phase2-seams.md` §0 now records the full design, and the rest of that page is annotated
 where it departs from it.

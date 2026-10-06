@@ -131,7 +131,7 @@ waits for each health check, and prints where the logs are. `scripts/stop-local.
 `stripe-sim` listens on **12111**, the same port `stripe-mock` uses. It remembers the PaymentIntents it
 created, so a confirm actually makes them `succeeded` — which `payInvoice` needs, and which the stateless
 official mock cannot do (DL-024). Docker compose runs `stripe-sim` too; the official image is the opt-in
-compose profile `official-stripe-mock`.
+compose profile `official-stripe-mock`, pinned to `v0.206.0` (DL-027).
 
 Logs go to `.local-run/logs/<service>.log`. The batch exchange goes to `.local-run/batch-exchange/`.
 

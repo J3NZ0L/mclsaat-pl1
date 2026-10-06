@@ -381,7 +381,9 @@ error models produced it. `BILLING_NOT_FOUND` â†’ 404, `BILLING_ILLEGAL_STATE` â
 
 Compose and the local path both run the `stripe-sim` module. The official `stripe/stripe-mock` image is
 an opt-in compose profile (`official-stripe-mock`): it can create PaymentIntents but cannot complete one,
-so `payInvoice` cannot close against it (DL-024). Same port, same SDK either way.
+so `payInvoice` cannot close against it (DL-024). Same port, same SDK either way. The official image is
+pinned to `v0.206.0`, there and in the billing payment tests, because it tracks the live Stripe OpenAPI
+spec and `:latest` has already changed the API under an unchanged checkout (DL-027).
 
 `stripe-sim` implements `POST /v1/payment_intents`, `GET /v1/payment_intents/{id}` and
 `POST /v1/payment_intents/{id}/confirm`, in Stripe's response shape. Unlike `stripe-mock` it
