@@ -94,6 +94,40 @@ class SemanticMappersTest {
         assertThat(SemanticMappers.toActivationDate(null)).isNull();
     }
 
+    // ------------------------------------------------------------------ subscription
+
+    @Test
+    void aCatalogSubscriptionKeepsItsRawStatusCodeAndShedsTheCharPadding() {
+        var subscription = SemanticMappers.fromCatalogSubscription("SUB-2026-000001", "00000042  ",
+                "MOB-VOICE-0050", "AC ", LocalDate.of(2026, 9, 29), "36209876543", "8936300000000000001",
+                51200, null, java.time.Instant.parse("2026-10-06T08:15:30Z"));
+
+        assertThat(subscription.customer().reference()).isEqualTo(42);
+        assertThat(subscription.status()).isEqualTo(SubscriptionStatus.ACTIVE);
+        assertThat(subscription.catalogStatusCode()).isEqualTo("AC");
+        assertThat(subscription.phoneNumber().withPlus()).isEqualTo("+36209876543");
+        assertThat(subscription.dataAllowance().megabytes()).isEqualTo(51200L);
+        assertThat(subscription.isAddon()).isFalse();
+    }
+
+    @Test
+    void anUnrecognisedCatalogStatusOnASubscriptionIsUnknownNotTheNearestGuess() {
+        var subscription = SemanticMappers.fromCatalogSubscription("SUB-2026-000002", "00000042",
+                "MOB-VOICE-0050", "ZZ", null, null, null, 0, null, java.time.Instant.EPOCH);
+
+        assertThat(subscription.status()).isEqualTo(SubscriptionStatus.UNKNOWN);
+        assertThat(subscription.catalogStatusCode()).isEqualTo("ZZ");
+    }
+
+    @Test
+    void theCatalogsMinusOneAllowanceIsUnmeteredAndNeverANegativeVolume() {
+        assertThat(SemanticMappers.fromCatalogAllowanceMb(-1).isUnmetered()).isTrue();
+        assertThat(SemanticMappers.fromCatalogAllowanceMb(0).megabytes()).isEqualTo(0L);
+        assertThat(SemanticMappers.fromCatalogAllowanceMb(5120).megabytes()).isEqualTo(5120L);
+        assertThatThrownBy(() -> SemanticMappers.fromCatalogAllowanceMb(-2))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     // -------------------------------------------------------------------- status
 
     @Test

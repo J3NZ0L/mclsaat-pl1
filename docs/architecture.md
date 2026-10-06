@@ -190,12 +190,13 @@ process engine, the job executor, the timers, the HTTP calls between services â€
 * a **canonical model** (`Money`, `DataVolume`, `CanonicalPlan`, `CanonicalSubscription`, â€¦) that
   belongs to none of the three subsystems;
 * **`SemanticMappers`**, one place where every legacy dialect is translated to and from it;
-* four clients, one per protocol: `CatalogJdbcClient` (direct SQL), `ActivationRestClient`,
-  `BillingSoapClient`, `BatchFileClient`.
+* clients, one per protocol: `CatalogJdbcClient` (direct SQL, read-only), `CatalogSubscriberRestClient`
+  (the catalog's REST writes: onboarding a subscriber and terminating a subscription),
+  `ActivationRestClient`, `BillingSoapClient`, `BatchFileClient`.
 
-There is no REST client for the catalog here. The only `CatalogRestClient` in the repository is
-activation's own, deliberately unshared one (DL-009), so through this layer the catalog is reached by
-direct SQL only.
+`CatalogSubscriberRestClient` is not activation's `CatalogRestClient`, which stays its own, deliberately
+unshared one (DL-009). Reads of the catalog through this layer are direct SQL only; writes go through the
+catalog's REST API so its own rules (an add-on's parent has its effective allowance recomputed) still run.
 
 `ops-console` is its only consumer today. In phase 2 the MCP servers and the UCP adapter sit on
 exactly this layer, which is why it exists now rather than being invented later. See
