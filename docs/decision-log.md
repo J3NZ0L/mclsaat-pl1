@@ -332,8 +332,9 @@ dependency layer is meant to be cached.
 ## DL-025 — Gap 1.4: the UCP checkout stays `complete_in_progress` over activate-then-bill
 
 Closes gap 1.4 of [`phase2-gaps.md`](phase2-gaps.md). Decided with the user on 2026-10-06, as a
-research-then-interview exercise. **Nothing in the legacy system changes for this decision**; it fixes
-the contract that the phase-3 UCP adapter is built against.
+research-then-interview exercise. **The decision itself changes no legacy behaviour**: invoice timing and
+the BPMN stay as they are. It fixes the contract that the phase-3 UCP adapter is built against, and it
+expects a few additive follow-ups, listed under "Expected additive changes" below.
 
 **Decision.** Keep activate-then-bill. `issueInvoice` stays the last task of the BPMN. A UCP Complete
 Checkout is accepted straight away and the checkout stays `complete_in_progress` for as long as the
@@ -352,7 +353,7 @@ order is being provisioned and charged. It becomes `completed` only when the mon
 | --- | --- |
 | Q1 | The checkout ends in `completed` only after a successful charge. "Order accepted, payment pending" is expressed as `complete_in_progress`, never as a completed order: UCP's Order has no payment-pending state. |
 | Q2 | A delayed first payment is acceptable. The delay is the provisioning time (seconds in the demo, DL-017). |
-| Q3 | The charge is attempted as soon as the order reports an `invoiceNo`, and must succeed or be given up before the checkout's `expires_at`. `expires_at` must exceed the provisioning timeout plus the retry budget (UCP's default is six hours). |
+| Q3 | The charge is attempted as soon as the order is `PROVISIONED` (its `invoiceNo` is then always present), and must succeed or be given up before the checkout's `expires_at`. `expires_at` must exceed the provisioning timeout plus the retry budget (UCP's default is six hours). |
 | Q4 | Not applicable. No pay-at-checkout branch is added. |
 | Q5 | One lifecycle for both channels, two triggers. UCP: the adapter charges automatically with the instrument supplied at Complete Checkout, which is the buyer's consent. Chat: the customer pays explicitly (service 5). Both end in the same `payInvoice(invoiceNo)` call. |
 | Q6 | The checkout quotes the **billing-derived** gross: net = round(gross / 1.27), VAT = round(net × 0.27), total = net + VAT. That is 5990.01 for `MOB-VOICE-0010` and 17989.99 for `INET-FIB-1000`, i.e. what billing will invoice and Stripe will charge. |
@@ -389,15 +390,22 @@ researched.
 
 ### Acceptance criteria for the implementation (non-negotiable)
 
-1. **No legacy change.** BPMN order, `startPayment` and `payInvoice` (1.3) are not altered by this decision.
+1. **What stays fixed:** invoice timing (`issueInvoice` after provisioning, BPMN order unchanged) and the
+   absence of any pay-at-checkout path. `startPayment` and the existing behaviour of `payInvoice` (1.3)
+   are not altered. The additive changes this decision expects are listed below, and nothing else.
 2. **Status mapping** is exactly the table above. `completed` is never returned before the invoice has
    reached `SETTLEMENT_PENDING`, and never waits for `PAID`.
-3. **No charge before an invoice exists.** The adapter learns the invoice from the order
-   (`CanonicalOrder.invoiceNo`, set once provisioned) and calls `payInvoice(invoiceNo)`. One order yields
-   exactly one charge across retries, replays and concurrent polls.
-4. **Quote == invoice gross == charge** for all nine seeded plans, with a test. The quote differs from the
-   catalog browse price for exactly the two plans DL-014 names.
-5. **Decline path** (needs a fault-injectable decline in `stripe-sim`, to be built): no `completed`,
+3. **No charge before an invoice exists, and none before the order is `PROVISIONED`.** The adapter reads
+   `CanonicalOrder.invoiceNo` (mapped from activation's `invoiceRef`; it is written by `issueInvoice`
+   *before* `markProvisioned`, so it can briefly appear on an order that is not yet `PROVISIONED`, which
+   is why the adapter waits for the status) and calls `payInvoice(invoiceNo)`. One order yields exactly
+   one charge across retries, replays and concurrent polls.
+4. **Quote == invoice gross == charge** for all nine seeded plans, proved by an integration test that
+   compares the adapter's quote with the gross the real `createInvoice` returns (a test that recomputes
+   the same formula proves nothing). The quote reproduces two subsystems' arithmetic, activation's net
+   rounding and billing's VAT rounding, and differs from the catalog browse price for exactly the two
+   plans DL-014 names.
+5. **Decline path** (needs the additive changes below): no `completed`,
    `canceled` with a message before `expires_at`, order and invoice unchanged, and listable by an ops
    diagnostic as "`PROVISIONED`, invoice `OPEN` beyond a threshold".
 6. **Failure branch A:** a `STUCK` order leaves the checkout `complete_in_progress`; ops cancel gives
@@ -408,6 +416,16 @@ researched.
 9. **`expires_at`** is set above provisioning timeout plus retry budget.
 10. **Order identifiers:** the UCP `order.id` is the activation order number, which contains slashes
     (DL-019), so any `permalink_url` must carry it as a query parameter.
+
+### Expected additive changes (none is done by this decision)
+
+* **A distinguishable decline in billing.** On the 1.3 branch a confirm that does not succeed throws
+  `IllegalState`, a SOAP fault with prose only, and the invoice stays `OPEN`. A retry is therefore safe,
+  but a decline cannot be told from other `IllegalState` faults (a cancelled invoice, say) without
+  parsing text. The bounded-retry loop of Q8 works either way; the explicit failure message needs a code.
+* **A fault-injectable decline in `stripe-sim`.**
+* **An optional payment-method element on `payInvoiceRequest`** (see below).
+* **An ops diagnostic rule** for "`PROVISIONED`, invoice `OPEN` beyond a threshold".
 
 ### Research basis and its limits
 
@@ -426,5 +444,3 @@ summarising fetch and should be re-read in the spec before the adapter is built.
 * **Known gap: buyer view versus system state after a decline.** The buyer sees `canceled` while the
   SIM may be live and the invoice open. Closing it means a billing cancel-invoice operation and an ops
   action to terminate a provisioned subscription. Not built; a candidate third failure branch.
-* **`phase2-seams.md` §4** still describes the choice as open. It was left alone to avoid colliding
-  with the 1.3 edits to the same page, and needs a one-line update when the branches merge.

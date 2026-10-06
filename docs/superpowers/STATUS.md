@@ -196,10 +196,12 @@ Decision record: `docs/decision-log.md` DL-025. Keep activate-then-bill; the UCP
 automatically, chat pays explicitly, both via `payInvoice`). A declined charge cancels the checkout and
 goes to ops; no automatic compensation. **No code changed.**
 
-Half-done / for the merge: `phase2-gaps.md` top "Status" paragraph still says 1.4 is open, and
-`phase2-seams.md` §4 still describes the choice as open; both were left alone to avoid colliding with
-the 1.3 branch (`bugfix/phase-2-gap-payment-closure`, which owns DL-024). Needed later: an optional
-payment-method element on `payInvoice` (both XSD copies) and a fault-injectable decline in `stripe-sim`.
+Half-done / for the merge: this branch cites DL-024 and `payInvoice`, which exist only on the 1.3 branch
+(`bugfix/phase-2-gap-payment-closure`). Merge 1.3 first, then rebase this one; expect small conflicts in
+`decision-log.md`, `phase2-gaps.md` (the Status sentence), `phase2-seams.md` §4 and this file.
+Needed later, all additive: an optional payment-method element on `payInvoice` (both XSD copies), a
+distinguishable decline fault in billing, a fault-injectable decline in `stripe-sim`, an ops diagnostic
+rule for provisioned-but-unpaid orders.
 
 ## Next action
 Continue with `docs/phase2-gaps.md` item 1.3 (payment loop closure without manual webhook posting),

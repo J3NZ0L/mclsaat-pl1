@@ -132,9 +132,9 @@ Three things a UCP adapter will have to decide, which phase 1 leaves open:
 * **When the customer pays.** The invoice is issued by the process's last service task, *after*
   provisioning completes, so there is no invoice number to pass to `startPayment` until minutes after
   the order was placed. This is postpaid, activate-then-bill, and it means `startPayment` cannot be
-  called at checkout time. Either the UCP checkout models the purchase as a pending order that is
-  paid later, or a pay-at-checkout path has to be added. Check this against UCP's checkout-completion
-  and payment model before choosing ([`phase2-gaps.md`](phase2-gaps.md) 1.4).
+  called at checkout time. **Decided (DL-025):** the UCP checkout is held in `complete_in_progress`
+  until the order is provisioned and the invoice is charged, and no pay-at-checkout path is added
+  ([`phase2-gaps.md`](phase2-gaps.md) 1.4).
 * **Who closes the payment loop.** Today `scripts/demo.sh` confirms the PaymentIntent and posts the
   `payment_intent.succeeded` webhook itself; neither `stripe-sim` nor `stripe-mock` sends webhooks,
   and settlement batches are not cut automatically (DL-018). `clientSecret` assumes a browser running

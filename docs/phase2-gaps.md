@@ -12,8 +12,9 @@ Findings are in three groups: gaps that block phase 2, decisions the phase-1 doc
 design, and places where the docs disagreed with the code.
 
 **Status.** Section 3 has been corrected in `architecture.md` and `phase2-seams.md`, and
-`phase2-seams.md` now marks the section 2 items and 1.3–1.4 as open. As of 2026-10-05, items 1.1 and
-1.2 are addressed in `subsystem-clients`; section 2 decisions and 1.3–1.4 are still open.
+`phase2-seams.md` marks the section 2 items and 1.3 as open. As of 2026-10-05, items 1.1 and 1.2 are
+addressed in `subsystem-clients`. Item 1.4 was decided on 2026-10-06 (DL-025, no code change). Section 2
+decisions and 1.3 are still open here; the 1.3 fix is on `bugfix/phase-2-gap-payment-closure`.
 
 ---
 
@@ -78,7 +79,7 @@ against UCP release `v2026-08-25`: Complete Checkout requires a payment instrume
 payment-pending state, and the checkout has an asynchronous `complete_in_progress` status for exactly
 this case. The checkout becomes `completed` once the order is provisioned and the invoice has reached
 `SETTLEMENT_PENDING` (the card charge succeeded; `PAID` is not awaited), and `canceled` on an ops
-cancel, a final charge decline or expiry. No legacy code changes. Also decided there:
+cancel, a final charge decline or expiry. Invoice timing and the BPMN do not change. Also decided there:
 
 * the checkout quotes the **billing-derived** total (5990.01 / 17989.99 for the two DL-014 plans), so
   quote, invoice and charge agree;
@@ -87,9 +88,10 @@ cancel, a final charge decline or expiry. No legacy code changes. Also decided t
 * a declined charge cancels the checkout and surfaces to ops, with no automatic compensation.
 
 The full answers, the rejected options (deferred Payment Term, authorize-then-capture) and the
-acceptance criteria are in [`decision-log.md`](decision-log.md) DL-025. Still open from this: an optional
-payment-method element on `payInvoice` so the UCP instrument can reach the charge (additive, both XSD
-copies), and a fault-injectable decline in `stripe-sim`.
+acceptance criteria are in [`decision-log.md`](decision-log.md) DL-025. Still to build from this, all
+additive: an optional payment-method element on `payInvoice` so the UCP instrument can reach the charge
+(both XSD copies), a distinguishable decline fault in billing, a fault-injectable decline in
+`stripe-sim`, and an ops diagnostic rule for provisioned-but-unpaid orders.
 
 ---
 
