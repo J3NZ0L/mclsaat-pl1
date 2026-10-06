@@ -213,3 +213,49 @@ being measured:
 
 [`AGENTS.md`](../AGENTS.md) §3 repeats this list, because it is the easiest thing for a future session
 to tidy away by accident.
+
+## 8. The agent layer: build order and where its tools come from (open)
+
+*An assessment from a 2026-10-06 discussion, not a decision. Nothing here has been built or verified by
+running it.*
+
+**What the layer is.** One function: given a persona (a system prompt plus a tool allowlist) and a user
+message, loop (the model asks for a tool, the tool runs, the result goes back) until the model is done.
+Your design already says it: one core, two personas. A framework supplies the loop. The one examined, the
+Claude Agent SDK (TypeScript package 0.3.291, read from `sdk.d.ts`, not run), takes the prompt, the tool
+servers and allow/deny lists, and its per-run result carries `duration_ms`, `usage`, `modelUsage`,
+`total_cost_usd` and `num_turns`, which is the tokenomics logging. No chat interface is needed: a
+"scenario" is a scripted first message.
+
+**The planned order, agents first and MCP servers afterwards, is feasible**, because before MCP servers
+exist the agent can still use *some* tool source. There are two, and which one is possible depends on the
+language of the agent core:
+
+| Tool source before MCP | Needs | What it is in the experiment |
+| --- | --- | --- |
+| **A. Raw tools**: generic HTTP, SQL, SOAP and file tools, schemas in the prompt | any language | the baseline arm of `PROJECT_DESC_HUN.md` |
+| **B. Typed in-process tools over `subsystem-clients`** | an agent core on the JVM | a middle arm: the canonical layer without the MCP protocol |
+
+The shared layer is Java and the SDK examined is TypeScript, so a non-JVM agent can reach `subsystem-clients`
+only through MCP servers. No Java agent framework was checked. With B the experiment has three arms
+(raw, in-process canonical, MCP). Raw versus in-process isolates the translation layer; in-process versus
+MCP isolates the protocol. The brief still asks for the MCP servers, so B does not replace them: the MCP
+tools would mostly be the same definitions moved behind the protocol.
+
+**Open points that decide how this is built**
+
+1. **The agent language** (JVM or not). It decides whether B exists.
+2. **What "raw" means:** generic tools, or one typed tool per endpoint. The comparison depends on it.
+3. **The persona boundary with generic tools.** There is no authentication (DL-012) and the customer/ops
+   split is by URL path only, so a generic HTTP tool lets a customer persona call `/ops/...`. The raw arm
+   needs a guard (for example a path allowlist inside the tool).
+4. **A scenario harness outside the agent.** The demo's failure setup (silencing the callback or the
+   clearing house) is a demo control, not an agent tool (DL-026), and each run needs a known starting
+   state. Build the harness before the agent.
+5. **Fairness across arms.** Prompts tuned for one arm do not carry to another, and the arm tuned first gets
+   more effort. Budget comparable effort per arm.
+6. **Granularity (gap 2.2) comes first for B.** Typed in-process tools are a tool surface with names,
+   schemas and a count, so the rule that granularity is settled before any tool is defined applies to them
+   as much as to MCP tools. Only A avoids it.
+
+These feed the 2.2 exercise ([`phase2-gaps.md`](phase2-gaps.md)).

@@ -315,7 +315,10 @@ The remaining work, in order, with the phase each item belongs to:
    *before any MCP tool surface is defined*. Run it as research-then-interview with the user: research
    industry guidance and example agent architectures from primary sources (pin versions and dates), ask
    one question at a time, record the answer as the next free DL entry. A proposed starting point is
-   written in 2.2; the user has not confirmed it, so do not build on it silently.
+   written in 2.2; the user has not confirmed it, so do not build on it silently. The user plans agents
+   first (no chat interface, scripted scenarios, logged), MCP servers after; that makes this step depend
+   on the agent core's language (JVM or not) and on what "raw tools" means: see 2.2 and
+   `docs/phase2-seams.md` §8. Proposed, not confirmed: decide language and granularity in one pass.
 3. **Build the ops MCP server (MCP#4)**, phase 2, with the tool surface from step 2.
 4. **Deferred to phase 3: the DL-025 unpaid-order rule** and its bulk billing query. It detects a declined
    UCP charge, so it waits for the UCP adapter.

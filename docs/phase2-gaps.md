@@ -162,6 +162,24 @@ Open decision: per-subsystem diagnostic tools (as designed), or a cross-subsyste
 >
 > Evidence already gathered for it is in [`decision-log.md`](decision-log.md) DL-026, "Research basis".
 > It is thin at this size: the published numbers are for libraries of 50 or more tools.
+>
+> **Dependencies on the agent layer** (details in [`phase2-seams.md`](phase2-seams.md) §8). The user plans to
+> build the agents first, without a chat interface, and the MCP servers afterwards. That order is
+> feasible, and it makes this item depend on, and feed into, three other choices:
+>
+> * **The agent core's language.** The shared layer is Java and the agent SDK examined is TypeScript. On
+>   the JVM the agent can use typed in-process tools over `subsystem-clients` before any MCP server
+>   exists; otherwise its only pre-MCP tools are raw ones. Typed in-process tools are a tool surface
+>   too, so on the JVM this decision must be made *before the agents are built*, not only before the MCP
+>   servers. Which Java agent frameworks exist and fit was not checked.
+> * **What "raw" means** for the baseline arm (generic tools, or one typed tool per endpoint), and a path
+>   guard on generic tools, since a customer persona could otherwise reach `/ops/...` (DL-012).
+> * **How many arms the tokenomics experiment has:** raw versus MCP, or raw versus in-process versus MCP.
+>   Whether granularity is itself a compared variable (two cuts behind a switch) belongs to the same
+>   question.
+>
+> *Proposed, not confirmed:* run the language choice and the granularity choice as one research-then-
+> interview pass, since each constrains the other.
 
 The design says "kb. 6+1 tool", one tool per service, and explicitly defers the final granularity to
 the tokenomics phase. `phase2-seams.md` §2 proposes eight tools, and its `ops.remediate` covers three
