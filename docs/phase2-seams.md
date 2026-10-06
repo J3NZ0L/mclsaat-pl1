@@ -67,7 +67,8 @@ can be built on it ([`phase2-gaps.md`](phase2-gaps.md) 1.1, 1.2).
 
 `INITIAL_DESIGN.md` plans "kb. 6+1 tool" at one tool per service, and the design leaves the final
 granularity to the tokenomics phase. The table below is **one candidate** for that decision, not the
-decision. The services were built so that a one-to-one mapping is mechanical:
+decision. Settling it is the first task of phase 2 ([`phase2-gaps.md`](phase2-gaps.md) 2.2). The
+services were built so that a one-to-one mapping is mechanical:
 
 | Service | Raw interface | Suggested MCP tool | Permission |
 | --- | --- | --- | --- |

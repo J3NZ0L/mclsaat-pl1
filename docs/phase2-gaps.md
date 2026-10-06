@@ -14,7 +14,8 @@ design, and places where the docs disagreed with the code.
 **Status.** Section 3 has been corrected in `architecture.md` and `phase2-seams.md`, and
 `phase2-seams.md` marks the section 2 items as open. As of 2026-10-06, items 1.1, 1.2 and 1.3 are
 addressed, item 1.4 is decided (DL-025, no code change) and item 2.1 is decided (DL-026, no code
-change); item 2.2 (tool count and granularity) is still open.
+change); item 2.2 (tool count and granularity) is deliberately not decided in phase 1. It is the
+**first task of phase 2**, to be settled with the user before any MCP tool surface is defined.
 
 ---
 
@@ -101,7 +102,8 @@ additive: an optional payment-method element on `payInvoice` so the UCP instrume
 (both XSD copies), a distinguishable decline fault in billing, a fault-injectable decline in
 `stripe-sim`, and an ops diagnostic rule for provisioned-but-unpaid orders. That rule now has a home:
 it becomes a third finding type in `LandscapeDiagnostics` behind the ops server's diagnose tool
-(DL-026), and needs a bulk source that neither billing nor activation offers today.
+(DL-026), and needs a bulk source that neither billing nor activation offers today. It detects a declined
+UCP charge, so it is deferred to phase 3 with the UCP adapter.
 
 ---
 
@@ -140,7 +142,26 @@ Why it matters:
 Open decision: per-subsystem diagnostic tools (as designed), or a cross-subsystem ops server over
 `LandscapeDiagnostics` (as the docs suggest).
 
-### 2.2 Tool count and granularity
+### 2.2 Tool count and granularity — deferred to the start of phase 2
+
+> **Not a phase-1 blocker, and not to be skipped.** The user's design defers the final granularity to the
+> tokenomics phase, and deciding it properly needs research that belongs to phase 2: industry guidance
+> and example agent architectures, then a comparison on this system. So it is the **first task of
+> phase 2**: before any MCP tool surface is defined (tool names, schemas, which tools a server lists),
+> run a research-then-interview exercise with the user and record the answer as the next free DL entry.
+> Do not start building tools on a silent default.
+>
+> *Proposed starting point, not confirmed by the user:* one tool per service for the customer side, as
+> the design says; on the ops server, diagnose plus separate remediation tools. The reason for the last
+> part is mechanical, not a preference: persona allowlists work per tool name and the MCP
+> `destructiveHint` is set per tool, so one `remediate` tool mixing reversible and irreversible actions
+> could not be split by permission. Counts under that proposal: customer side 6 (7 with `startPayment`),
+> ops side 2 to 6 depending on how remediation is cut, so 8 to 13 for the ops persona, which also
+> connects to the customer servers. Whether granularity is itself a variable the tokenomics experiment
+> should compare (two cuts behind a switch) is part of that exercise.
+>
+> Evidence already gathered for it is in [`decision-log.md`](decision-log.md) DL-026, "Research basis".
+> It is thin at this size: the published numbers are for libraries of 50 or more tools.
 
 The design says "kb. 6+1 tool", one tool per service, and explicitly defers the final granularity to
 the tokenomics phase. `phase2-seams.md` §2 proposes eight tools, and its `ops.remediate` covers three

@@ -6,6 +6,9 @@ Read this, then [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md) for w
 stands. If you are resuming after an interruption, reconcile `STATUS.md` with `git log` before doing
 anything else.
 
+**About to start phase 2?** Item 2.2 of [`docs/phase2-gaps.md`](docs/phase2-gaps.md) (tool count and
+granularity) is its first task and must be settled with the user before any MCP tool is defined. See §8.
+
 ---
 
 ## 1. What this repository is
@@ -207,3 +210,8 @@ Whoever writes the code does not get to certify it. **Run it**, do not only look
 * Update `docs/superpowers/STATUS.md` with every push: current state, what is half-done, next action.
 * There is no authentication anywhere (DL-012) and nothing here should be exposed outside a developer
   machine or a compose network.
+* **Phase 2 starts with a decision, not code.** The "decide, record, continue" rule above does not cover
+  tool granularity. Before defining any MCP tool surface (names, schemas, which tools a server lists),
+  settle `docs/phase2-gaps.md` 2.2 with the user as a research-then-interview exercise: research industry
+  guidance and example agent architectures from primary sources, ask one question at a time, and record
+  the outcome as the next free DL entry. The proposed starting point written there is not confirmed.
