@@ -148,6 +148,40 @@
         </xs:complexType>
     </xs:element>
 
+    <!-- ============ service 5c: pay an invoice now, with no browser involved ============ -->
+
+    <!--
+      The chat/agent channel has no Stripe.js to confirm a PaymentIntent with, so billing closes
+      the payment leg itself: confirm at Stripe, move the invoice to SETTLEMENT_PENDING, cut the
+      settlement batch. startPayment (above) stays as the browser hand-off. The invoice still ends
+      PAID only when the clearing house acknowledges the batch, so callers poll getInvoices.
+      Idempotent: calling it again for an invoice that has already moved on reports its current
+      state and changes nothing.
+    -->
+    <xs:element name="payInvoiceRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="invoiceNo" type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="payInvoiceResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="invoiceNo"     type="xs:string"/>
+                <xs:element name="paymentRef"    type="xs:string" minOccurs="0"/>
+                <!-- OPEN | SETTLEMENT_PENDING | PAID, as the invoice is when the call returns -->
+                <xs:element name="invoiceStatus" type="xs:string"/>
+                <!-- false when the invoice had already been paid and nothing was done -->
+                <xs:element name="changed"       type="xs:boolean"/>
+                <!-- the settlement batch this invoice rode in on, when one was cut -->
+                <xs:element name="batchId"       type="xs:string" minOccurs="0"/>
+                <xs:element name="message"       type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
     <!-- ============ ops-only operations (failure branch B) ============ -->
 
     <xs:element name="exportPaymentBatchRequest">

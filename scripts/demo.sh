@@ -19,7 +19,6 @@ CATALOG_URL="${CATALOG_URL:-http://localhost:8081}"
 ACTIVATION_URL="${ACTIVATION_URL:-http://localhost:8082}"
 BILLING_URL="${BILLING_URL:-http://localhost:8083}"
 OPS_URL="${OPS_URL:-http://localhost:8080}"
-STRIPE_URL="${STRIPE_URL:-http://localhost:12111}"
 
 # A demo customer with an existing billing account in all three subsystems.
 CUSTOMER_REF="${CUSTOMER_REF:-43}"
@@ -204,53 +203,29 @@ demo_happy() {
     | sed 's|<ns2:||; s|>| = |' | raw
   note "Nobody in this system owns that fillér. See docs/semantic-mismatches.md."
 
-  step "Service 5 — start a payment for $invoice_no (SOAP -> Stripe)"
-  local payment payment_ref amount_minor
-  payment="$(soap "<startPaymentRequest xmlns=\"$NS\"><invoiceNo>$invoice_no</invoiceNo></startPaymentRequest>")"
+  step "Service 5 — pay $invoice_no with no browser (SOAP payInvoice)"
+  note "The chat/agent channel has no Stripe.js, so billing closes the payment leg itself: it confirms"
+  note "the PaymentIntent at Stripe, moves the invoice to SETTLEMENT_PENDING and cuts the settlement"
+  note "batch. This script calls nothing else - no Stripe confirm, no webhook POST, no ops export."
+  local payment payment_ref pay_status batch_id
+  payment="$(soap "<payInvoiceRequest xmlns=\"$NS\"><invoiceNo>$invoice_no</invoiceNo></payInvoiceRequest>")"
   printf '%s' "$payment" | pretty_xml | raw
   payment_ref="$(soap_field "$payment" paymentRef)"
-  amount_minor="$(soap_field "$payment" amountMinor)"
-  if [[ -z "$payment_ref" ]]; then fail "no PaymentIntent was created"; return 1; fi
-  ok "Stripe PaymentIntent $payment_ref for $amount_minor minor units"
-  note "Third money representation: the invoice holds 9990.00, Stripe is told $amount_minor."
-
-  step "The customer pays (what a browser would do through Stripe.js)"
-  "${CURL[@]}" -X POST "$STRIPE_URL/v1/payment_intents/$payment_ref/confirm" >/dev/null 2>&1 \
-    && note "confirmed at the Stripe stand-in" \
-    || note "the Stripe stand-in does not implement confirm (stripe-mock is stateless); carrying on"
-
-  step "Stripe's webhook into billing — REST/JSON, inside a SOAP subsystem"
-  "${CURL[@]}" -X POST "$BILLING_URL/webhook/stripe" -H 'Content-Type: application/json' \
-    --data-binary "{\"id\":\"evt_demo\",\"type\":\"payment_intent.succeeded\",\"data\":{\"object\":{\"id\":\"$payment_ref\",\"metadata\":{\"invoice_no\":\"$invoice_no\"}}}}" \
-    | pretty_json | raw
+  pay_status="$(soap_field "$payment" invoiceStatus)"
+  batch_id="$(soap_field "$payment" batchId)"
+  if [[ -z "$payment_ref" ]]; then fail "payInvoice returned no PaymentIntent: $payment"; return 1; fi
+  ok "Stripe PaymentIntent $payment_ref confirmed by billing itself"
+  note "Third money representation: the invoice holds the gross amount, Stripe was told it in minor units."
   note "SETTLEMENT_PENDING, not PAID. Stripe has the money; this business does not consider it"
   note "posted until the clearing house acknowledges the settlement batch."
-
-  step "Cut a settlement batch (fixed-width EDI-style file, the third kind of API)"
-  local export_result batch_id
-  export_result="$("${CURL[@]}" -X POST "$OPS_URL/ops/v1/remediation/billing/export-batch")"
-  batch_id="$(jq_get "$export_result" "['target']")"
-  note "$(jq_get "$export_result" "['outcome']")"
-
-  step "The settlement file, as written"
-  note "No envelope, no schema, no field names — HDR 61 bytes, DTL 85, TRL 24, money as an integer"
-  note "with an implied two decimals."
-  local batch_detail
-  batch_detail="$("${CURL[@]}" "$OPS_URL/ops/v1/diagnostics/unconfirmed-batches?olderThanMinutes=0")"
-  python3 -c "
-import sys, json
-batch_id = sys.argv[1]
-for finding in json.load(sys.stdin):
-    if finding['batch']['batchId'] == batch_id:
-        for line in finding['settlementFileLines']:
-            print('%-3s len=%-3s |%s|' % (line[:3], len(line), line))
-" "$batch_id" <<<"$batch_detail" | raw
+  if [[ "$pay_status" != "SETTLEMENT_PENDING" && "$pay_status" != "PAID" ]]; then
+    fail "the invoice is $pay_status after payInvoice, expected SETTLEMENT_PENDING"; return 1
+  fi
+  if [[ -z "$batch_id" ]]; then fail "payInvoice cut no settlement batch"; return 1; fi
+  ok "invoice is $pay_status and rides settlement batch $batch_id"
+  note "The fixed-width settlement file itself is shown in failure branch B, where it gets stuck."
 
   step "The clearing house answers, and a background poller applies it"
-  if [[ -z "$batch_id" || "$batch_id" == "None" ]]; then
-    fail "no batch was exported: $(jq_get "$export_result" "['outcome']")"
-    return 1
-  fi
   local i status
   for ((i = 1; i <= 30; i++)); do
     status="$(soap_field "$(soap "<getPaymentBatchRequest xmlns=\"$NS\"><batchId>$batch_id</batchId></getPaymentBatchRequest>")" status)"
@@ -396,23 +371,24 @@ demo_batch() {
     return 1
   fi
   note "paying $invoice_no"
-  local payment payment_ref
-  payment="$(soap "<startPaymentRequest xmlns=\"$NS\"><invoiceNo>$invoice_no</invoiceNo></startPaymentRequest>")"
-  payment_ref="$(soap_field "$payment" paymentRef)"
-  "${CURL[@]}" -X POST "$BILLING_URL/webhook/stripe" -H 'Content-Type: application/json' \
-    --data-binary "{\"type\":\"payment_intent.succeeded\",\"data\":{\"object\":{\"id\":\"$payment_ref\",\"metadata\":{\"invoice_no\":\"$invoice_no\"}}}}" \
-    | pretty_json | raw
+  local payment batch_id pay_status
+  payment="$(soap "<payInvoiceRequest xmlns=\"$NS\"><invoiceNo>$invoice_no</invoiceNo></payInvoiceRequest>")"
+  printf '%s' "$payment" | pretty_xml | raw
+  batch_id="$(soap_field "$payment" batchId)"
+  pay_status="$(soap_field "$payment" invoiceStatus)"
+  if [[ "$pay_status" == "SETTLEMENT_PENDING" ]]; then
+    ok "payInvoice returned with the invoice SETTLEMENT_PENDING; with the clearing house silent it cannot move on"
+  else
+    fail "expected SETTLEMENT_PENDING from payInvoice, got '$pay_status'"
+  fi
 
-  step "Cut a settlement batch — it will never be acknowledged"
-  local export_result batch_id
-  export_result="$("${CURL[@]}" -X POST "$OPS_URL/ops/v1/remediation/billing/export-batch")"
-  batch_id="$(jq_get "$export_result" "['target']")"
-  if [[ -z "$batch_id" || "$batch_id" == "None" ]]; then
-    warn "nothing was waiting for settlement: $(jq_get "$export_result" "['outcome']")"
+  step "Billing paid it and cut the settlement batch itself — it will never be acknowledged"
+  if [[ -z "$batch_id" ]]; then
+    warn "payInvoice cut no batch: $(soap_field "$payment" message)"
     return 1
   fi
   ok "batch $batch_id sent"
-  sleep 4
+  note "$(soap_field "$payment" message)"
 
   step "Nothing came back"
   local batch_status

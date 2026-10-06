@@ -4,7 +4,6 @@ import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CanonicalPlan;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CanonicalSubscriber;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CanonicalSubscription;
 import hu.mclsaat.legacy.clients.canonical.CanonicalModel.CustomerRef;
-import hu.mclsaat.legacy.clients.canonical.DataVolume;
 import hu.mclsaat.legacy.clients.canonical.Money;
 import hu.mclsaat.legacy.clients.mapping.SemanticMappers;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,24 +52,21 @@ public class CatalogJdbcClient {
             rs.getString("addon_category"),
             // an integer count of fillér, gross
             Money.ofMinorUnits(rs.getLong("monthly_fee_minor"), "HUF"),
-            toDataVolume(rs.getInt("data_allowance_mb")),
+            SemanticMappers.fromCatalogAllowanceMb(rs.getInt("data_allowance_mb")),
             (Integer) rs.getObject("speed_kbps"),
             SemanticMappers.fromCatalogFlag(rs.getString("active_flag")));
 
     private static final RowMapper<CanonicalSubscription> SUBSCRIPTION_MAPPER = (rs, rowNum) -> {
         Date activatedOn = rs.getDate("activated_on");
-        String statusCode = rs.getString("status_code");
-        return new CanonicalSubscription(
+        return SemanticMappers.fromCatalogSubscription(
                 rs.getString("sub_id"),
-                CustomerRef.of(SemanticMappers.fromCatalogCustNo(rs.getString("cust_no"))),
+                rs.getString("cust_no"),
                 rs.getString("plan_code"),
-                SemanticMappers.fromCatalogStatusCode(statusCode),
-                statusCode == null ? null : statusCode.trim(),
+                rs.getString("status_code"),
                 activatedOn == null ? null : activatedOn.toLocalDate(),
-                hu.mclsaat.legacy.clients.canonical.CanonicalModel.PhoneNumber
-                        .of(rs.getString("msisdn")),
+                rs.getString("msisdn"),
                 rs.getString("sim_iccid"),
-                toDataVolume(rs.getInt("data_allowance_mb")),
+                rs.getInt("data_allowance_mb"),
                 rs.getString("parent_sub_id"),
                 rs.getTimestamp("updated_ts").toInstant());
     };
@@ -146,11 +142,5 @@ public class CatalogJdbcClient {
         } catch (RuntimeException ex) {
             return false;
         }
-    }
-
-    private static DataVolume toDataVolume(int megabytes) {
-        return megabytes == SemanticMappers.CATALOG_UNMETERED_MB
-                ? DataVolume.unmetered()
-                : DataVolume.ofMegabytes(megabytes);
     }
 }

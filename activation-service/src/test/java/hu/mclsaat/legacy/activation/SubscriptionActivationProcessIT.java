@@ -9,7 +9,11 @@ import hu.mclsaat.legacy.activation.service.ActivationOrderService;
 import hu.mclsaat.legacy.activation.service.ProvisioningPlatformSimulator;
 import org.flowable.common.engine.api.FlowableObjectNotFoundException;
 import org.flowable.common.engine.api.FlowableOptimisticLockingException;
+import org.flowable.engine.ManagementService;
+import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RuntimeService;
+import org.flowable.job.service.impl.asyncexecutor.AsyncExecutor;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -17,7 +21,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,17 +47,38 @@ import static org.mockito.Mockito.when;
  */
 class SubscriptionActivationProcessIT extends ActivationIntegrationTest {
 
+    /**
+     * How many unchanged samples of the execution tree count as the engine having gone quiet. Three,
+     * at {@code awaitUntil}'s 100ms interval, is a fifth of a second of no writes.
+     */
+    private static final int QUIET_SAMPLES = 3;
+
     @Autowired ActivationOrderService activation;
     @Autowired ActivationOrderRepository orders;
     @Autowired ProvisioningPlatformSimulator platform;
     @Autowired RuntimeService runtimeService;
+    @Autowired ManagementService managementService;
+    @Autowired ProcessEngine processEngine;
 
     @MockitoBean CatalogRestClient catalog;
     @MockitoBean BillingSoapClient billing;
 
+    /**
+     * Deleting the leftovers here rather than only before the next test closes the window in which
+     * the executor drives a parked instance after Mockito has reset this test's stubs - which it did,
+     * noisily, as a {@code NullPointerException} from {@code ValidateOrderDelegate} on a plan stub
+     * that no longer answers.
+     */
+    @AfterEach
+    void leaveNoProcessInstanceRunning() {
+        drainProcessInstancesLeftByEarlierTests();
+    }
+
     @BeforeEach
     void stubTheNeighbouringSubsystems() {
         platform.setCallbacksEnabled(true);
+        // Belt and braces: an @AfterEach that did not get to run (a crashed teardown) still leaves
+        // instances behind, and they must not be running when the assertions below are made.
         drainProcessInstancesLeftByEarlierTests();
 
         when(catalog.fetchSubscriber(anyInt())).thenReturn(new CatalogRestClient.CatalogSubscriber(
@@ -370,12 +399,74 @@ class SubscriptionActivationProcessIT extends ActivationIntegrationTest {
      * meaningless. Deleting the leftovers first is what makes the interaction assertions below
      * trustworthy.
      *
-     * <p>Deleting an instance the job executor is working on at that exact moment loses the race and
-     * throws {@link FlowableOptimisticLockingException}, so this retries rather than treating the
-     * collision as a test failure. That is also how a real caller has to behave against a live
-     * engine.
+     * <p>The delete and the job executor must not run at the same time. Both walk the same
+     * {@code ACT_RU_EXECUTION} tree and they take the row locks in different orders, so PostgreSQL
+     * resolves the collision as {@code deadlock detected} - which it did on three of eight
+     * consecutive runs of this class, on the untouched baseline as well. Retrying the delete, which
+     * is all this used to do, keeps re-entering the race; quiescing the engine first takes the
+     * second writer away. Stop acquiring jobs, let the jobs already in flight finish, and only then
+     * delete. The retry stays as the backstop for the window that is left.
      */
     private void drainProcessInstancesLeftByEarlierTests() {
+        if (runtimeService.createProcessInstanceQuery().count() == 0) {
+            // Nothing to delete, so nothing to race: leave the executor running. This is the usual
+            // case before a test, because the test before it cleaned up after itself.
+            return;
+        }
+        jobExecutor().shutdown();
+        try {
+            awaitTheEngineToGoQuiet();
+            deleteEveryProcessInstance();
+        } finally {
+            jobExecutor().start();
+        }
+    }
+
+    /**
+     * Waits until no job is being executed any more.
+     *
+     * <p>{@code shutdown()} is not enough on its own, in two ways. It stops job acquisition, which
+     * is what makes this terminate - a follow-on job created while the executor is down is only
+     * queued, never run - but it does not wait for work in flight, because the thread pool belongs
+     * to Spring rather than to the executor (which is also why {@code start()} can bring the same
+     * pool back afterwards). And a job the engine handed to that pool directly when its creating
+     * transaction committed never took a row lock, so asking which jobs are locked does not see the
+     * one job that matters.
+     *
+     * <p>What such a job does do is write to the execution tree. Waiting for the tree to stop
+     * changing therefore sees it where a lock query does not.
+     */
+    private void awaitTheEngineToGoQuiet() {
+        var previous = new AtomicReference<String>();
+        var unchanged = new AtomicInteger();
+        awaitUntil("the engine to stop writing to its execution tree", Duration.ofSeconds(20), () -> {
+            String snapshot = executionTreeSnapshot();
+            unchanged.set(snapshot.equals(previous.getAndSet(snapshot)) ? unchanged.get() + 1 : 0);
+            return unchanged.get() >= QUIET_SAMPLES
+                    && managementService.createJobQuery().locked().count() == 0;
+        });
+    }
+
+    private String executionTreeSnapshot() {
+        return runtimeService.createExecutionQuery().list().stream()
+                .map(execution -> execution.getId() + ":" + execution.getActivityId()
+                        + ":" + execution.isEnded())
+                .sorted()
+                .collect(Collectors.joining(","));
+    }
+
+    private AsyncExecutor jobExecutor() {
+        return processEngine.getProcessEngineConfiguration().getAsyncExecutor();
+    }
+
+    /**
+     * With the engine quiet a single pass is normally enough. The retry is the backstop: a job that
+     * commits between the query and the delete still loses or wins the race, as
+     * {@link FlowableOptimisticLockingException}, a not-found, or - when PostgreSQL notices the two
+     * transactions holding each other's rows first - a MyBatis {@code PersistenceException} wrapping
+     * "deadlock detected". None of those is a test failure; only failing to drain at all is.
+     */
+    private void deleteEveryProcessInstance() {
         for (int attempt = 0; attempt < 10; attempt++) {
             var instances = runtimeService.createProcessInstanceQuery().list();
             if (instances.isEmpty()) {
@@ -384,8 +475,9 @@ class SubscriptionActivationProcessIT extends ActivationIntegrationTest {
             for (var instance : instances) {
                 try {
                     runtimeService.deleteProcessInstance(instance.getId(), "test isolation");
-                } catch (FlowableOptimisticLockingException | FlowableObjectNotFoundException ex) {
-                    // the executor got there first, or already finished it; try again next round
+                } catch (FlowableOptimisticLockingException | FlowableObjectNotFoundException
+                         | org.apache.ibatis.exceptions.PersistenceException ex) {
+                    // already finished, or finished underneath us; try again next round
                 }
             }
             sleep(150);

@@ -1,10 +1,13 @@
-# CLAUDE.md
+# AGENTS.md
 
 Guidance for future Claude Code sessions in this repository.
 
 Read this, then [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md) for where the work actually
 stands. If you are resuming after an interruption, reconcile `STATUS.md` with `git log` before doing
 anything else.
+
+**About to start phase 2?** Item 2.2 of [`docs/phase2-gaps.md`](docs/phase2-gaps.md) (tool count and
+granularity) is its first task and must be settled with the user before any MCP tool is defined. See §8.
 
 ---
 
@@ -97,8 +100,9 @@ and the documentation in the same commit, and record it in the decision log.
 4. **`ops-console` reaches into the catalog's schema over direct JDBC.** No API, just SQL against
    another subsystem's tables. This is one of the four required interface styles.
 
-5. **`stripe-sim` exists alongside `stripe/stripe-mock`** (DL-011). Not redundancy: the official mock
-   is stateless, and the local path needs a `confirm` that actually changes a status.
+5. **`stripe-sim` exists alongside `stripe/stripe-mock`** (DL-011, DL-024). Not redundancy: the official
+   mock is stateless, and `payInvoice` needs a `confirm` that actually changes a status, so compose and
+   the local path both run `stripe-sim`.
 
 6. **Order numbers are query parameters, not path variables.** They contain slashes
    (`ORD/2026/0000001`), Tomcat rejects an encoded `%2F`, and decoding it splits the order number into
@@ -167,8 +171,9 @@ Whoever writes the code does not get to certify it. **Run it**, do not only look
 | A rejected order stays in `RECEIVED` with no reason | An unhandled `BpmnError` from an async service task rolls the transaction back, taking the status write with it. The reject path has an error boundary event and a separate `markRejected` delegate |
 | A `PT5S` timer fires at t+13s | Flowable polls for due timer jobs every 10s by default; `flowable.process.async.executor.default-timer-job-acquire-wait-time: PT1S` |
 | `stripe-mock` rejects the API key with `AuthenticationException` | The key must be alphanumeric after `sk_test_`. `sk_test_mclsaat123` works, `sk_test_mclsaat_local` does not |
+| Billing payment ITs fail on a checkout that has not changed | `stripe-mock` is generated from the live Stripe OpenAPI spec, so `:latest` moves the API under you — it dropped `payment_method_types`. Pinned to `v0.206.0` in `BillingIntegrationTest` **and** the `official-stripe-mock` compose profile; raise the two together (DL-027) |
 | Activation ITs hang waiting for a callback | The simulated platform calls back over real HTTP, so the tests use `DEFINED_PORT` (18082), not `RANDOM_PORT` (DL-015) |
-| Flowable ITs fail on mock verifications at random | The shared job executor runs leftover instances from earlier tests. `SubscriptionActivationProcessIT` drains them in `@BeforeEach`, retrying on optimistic-locking collisions |
+| Flowable ITs fail on mock verifications at random, or log `deadlock detected` | The shared job executor keeps driving instances earlier tests left behind. `SubscriptionActivationProcessIT` drains them in `@AfterEach` and `@BeforeEach`, and stops the job executor and waits for the execution tree to go quiet first — deleting alongside a running job deadlocks on `ACT_RU_EXECUTION` (DL-027) |
 
 ---
 
@@ -206,3 +211,8 @@ Whoever writes the code does not get to certify it. **Run it**, do not only look
 * Update `docs/superpowers/STATUS.md` with every push: current state, what is half-done, next action.
 * There is no authentication anywhere (DL-012) and nothing here should be exposed outside a developer
   machine or a compose network.
+* **Phase 2 starts with a decision, not code.** The "decide, record, continue" rule above does not cover
+  tool granularity. Before defining any MCP tool surface (names, schemas, which tools a server lists),
+  settle `docs/phase2-gaps.md` 2.2 with the user as a research-then-interview exercise: research industry
+  guidance and example agent architectures from primary sources, ask one question at a time, and record
+  the outcome as the next free DL entry. The proposed starting point written there is not confirmed.

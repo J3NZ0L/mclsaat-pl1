@@ -150,7 +150,7 @@ Port 8083. Database `billingdb`, schema `billing`.
 Three protocols in one subsystem, which is the point of it.
 
 * **SOAP** for the enterprise. Contract-first from `xsd/billing-v1.xsd`; WSDL generated and served at
-  `/ws/billing.wsdl`. Seven operations: `getInvoices`, `createInvoice`, `startPayment`, and the four
+  `/ws/billing.wsdl`. Eight operations: `getInvoices`, `createInvoice`, `startPayment`, `payInvoice`, and the four
   ops-only ones (`exportPaymentBatch`, `listUnconfirmedBatches`, `getPaymentBatch`,
   `reconcileBatch`).
 * **Batch fixed-width files** for the clearing house. Outbound `PMT-<batchId>.txt` records are
@@ -176,7 +176,7 @@ alternative teaches nothing:
 
 | Mocked | Why, and how honestly |
 | --- | --- |
-| **Stripe** | No real account exists. `stripe/stripe-mock` (the official image) under compose, `stripe-sim` on the local path, both spoken to through the real Stripe Java SDK over HTTP. Swapping in a real `sk_test_` key is two properties. |
+| **Stripe** | No real account exists. `stripe-sim` (stateful, so a confirm can complete a payment) under compose and locally; the official `stripe/stripe-mock` is an opt-in compose profile and is used by the create-only integration tests. All spoken to through the real Stripe Java SDK over HTTP. Swapping in a real `sk_test_` key is two properties. |
 | **The network provisioning platform** | Real SIM and line provisioning means an OSS that owns physical inventory. The simulator lives inside `activation-service` but calls back **over HTTP to the public callback endpoint**, from a scheduled thread — nothing short-circuits into the engine. |
 | **The clearing house** | Inside `billing-service`, reading and writing the same real files on the same real filesystem an SFTP partner would. Its `/sim/clearing-house/config` endpoint is the fault injection point for failure branch B. |
 
@@ -190,12 +190,13 @@ process engine, the job executor, the timers, the HTTP calls between services �
 * a **canonical model** (`Money`, `DataVolume`, `CanonicalPlan`, `CanonicalSubscription`, …) that
   belongs to none of the three subsystems;
 * **`SemanticMappers`**, one place where every legacy dialect is translated to and from it;
-* four clients, one per protocol: `CatalogJdbcClient` (direct SQL), `ActivationRestClient`,
-  `BillingSoapClient`, `BatchFileClient`.
+* clients, one per protocol: `CatalogJdbcClient` (direct SQL, read-only), `CatalogSubscriberRestClient`
+  (the catalog's REST writes: onboarding a subscriber and terminating a subscription),
+  `ActivationRestClient`, `BillingSoapClient`, `BatchFileClient`.
 
-There is no REST client for the catalog here. The only `CatalogRestClient` in the repository is
-activation's own, deliberately unshared one (DL-009), so through this layer the catalog is reached by
-direct SQL only.
+`CatalogSubscriberRestClient` is not activation's `CatalogRestClient`, which stays its own, deliberately
+unshared one (DL-009). Reads of the catalog through this layer are direct SQL only; writes go through the
+catalog's REST API so its own rules (an add-on's parent has its effective allowance recomputed) still run.
 
 `ops-console` is its only consumer today. In phase 2 the MCP servers and the UCP adapter sit on
 exactly this layer, which is why it exists now rather than being invented later. See
@@ -214,7 +215,7 @@ subscriber, both of which the customer persona and the UCP adapter need. See
 | 2 | Start a subscription (happy path) | activation | REST | `POST /activation/v1/orders` |
 | 3 | Poll activation/order status | activation | REST | `GET /activation/v1/orders?orderNo=…` |
 | 4 | Plan change / add-on | activation | REST | same endpoint, `changeType` variant |
-| 5 | Invoice query + start payment | billing | SOAP | `getInvoices`, `startPayment` |
+| 5 | Invoice query + payment | billing | SOAP | `getInvoices`, `startPayment` (browser), `payInvoice` (browserless) |
 | 6 | Detect and resolve the failure branches | ops | REST (internal) | `/ops/v1/**` |
 
 ## The two failure branches

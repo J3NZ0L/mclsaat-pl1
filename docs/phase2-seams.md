@@ -29,6 +29,8 @@ on 2026-09-30 and not otherwise in the repository, is:
 * **The failure branch is triggered by a diagnostic tool**, because there is no push notification,
   only polling. It lists activations and invoices waiting for confirmation longer than a threshold,
   lives on MCP#2 and MCP#3 (activation and billing), and only the ops persona can reach it.
+  *(Placement superseded by DL-026: the diagnostic and remediation tools live on a fourth, ops-only
+  server. The rest of the bullet, polling only and ops persona only, stands.)*
 * **About 6+1 tools**: one per service plus the diagnostic tool. Final granularity (one tool per
   service, or browse → select → confirm steps) is deliberately left to the tokenomics phase.
 
@@ -43,9 +45,10 @@ The library holds three things:
 * a **canonical model** — `Money`, `DataVolume`, `CanonicalPlan`, `CanonicalSubscription`,
   `CanonicalInvoice`, … — which belongs to none of the three subsystems;
 * **`SemanticMappers`**, the single place every legacy dialect is translated to and from it;
-* one client per protocol: `CatalogJdbcClient` (direct SQL), `ActivationRestClient`,
-  `BillingSoapClient`, `BatchFileClient`. There is no shared catalog REST client — activation's
-  `CatalogRestClient` is its own (DL-009) — so through this layer the catalog is direct SQL only.
+* one client per protocol: `CatalogJdbcClient` (direct SQL, read-only), `CatalogSubscriberRestClient`
+  (the catalog's REST writes: `createSubscriber`, `terminateSubscription`), `ActivationRestClient`,
+  `BillingSoapClient`, `BatchFileClient`. Activation's `CatalogRestClient` is its own (DL-009) and is not
+  this one; catalog reads through this layer are direct SQL only.
 
 An MCP server for this landscape should depend on `subsystem-clients` and expose its canonical model
 as tool schemas. It should *not* talk to the three services directly, and it should not re-derive the
@@ -55,17 +58,20 @@ DL-009) and the one phase 2 exists to fix.
 `ops-console` is the worked example: it is a consumer of exactly this layer, doing exactly the kind of
 cross-subsystem work an agent will do.
 
-**The layer is not complete for phase 2.** It was built for the ops console, so it covers what ops
-needs and not what a customer does: `ActivationRestClient` has no method for `POST /orders` (services
-2 and 4), and nothing wraps the catalog's `POST /api/v1/subscribers`, which a new buyer needs before
-activation will accept an order. Both have to be added before the customer persona or the UCP adapter
-can be built on it ([`phase2-gaps.md`](phase2-gaps.md) 1.1, 1.2).
+**The layer now covers the customer flow too.** It was originally built for the ops console, so it
+covered what ops needs and not what a customer does. The three gaps that left are closed:
+`ActivationRestClient.startOrder` and its typed helpers place an order (services 2 and 4,
+[`phase2-gaps.md`](phase2-gaps.md) 1.1), `CatalogSubscriberRestClient.createSubscriber` onboards the
+new buyer an order needs first (1.2), and `terminateSubscription` gives the orphan remedy a tool at
+last (DL-026 criterion 5). The customer persona and the UCP adapter can be built on the layer as it
+stands; what phase 2 still lacks is a decision, not a method (§2).
 
 ## 2. Six services, and one candidate tool mapping
 
 `INITIAL_DESIGN.md` plans "kb. 6+1 tool" at one tool per service, and the design leaves the final
 granularity to the tokenomics phase. The table below is **one candidate** for that decision, not the
-decision. The services were built so that a one-to-one mapping is mechanical:
+decision. Settling it is the first task of phase 2 ([`phase2-gaps.md`](phase2-gaps.md) 2.2). The
+services were built so that a one-to-one mapping is mechanical:
 
 | Service | Raw interface | Suggested MCP tool | Permission |
 | --- | --- | --- | --- |
@@ -73,7 +79,7 @@ decision. The services were built so that a one-to-one mapping is mechanical:
 | 2. Start subscription | activation REST `POST /orders` | `subscription.start` | customer |
 | 3. Poll order status | activation REST `GET /orders?orderNo=…` | `subscription.order_status` | customer |
 | 4. Plan change / add-on | same endpoint, `changeType` variant | `subscription.change` | customer |
-| 5. Invoice query + pay | billing SOAP `getInvoices`, `startPayment` | `billing.list_invoices`, `billing.start_payment` | customer |
+| 5. Invoice query + pay | billing SOAP `getInvoices`, `payInvoice` (chat/agent) or `startPayment` (browser hand-off) | `billing.list_invoices`, `billing.pay_invoice` / `billing.start_payment` | customer |
 | 6. Detect & resolve | ops console `/ops/v1/**` | `ops.diagnose`, `ops.remediate` | **ops only** |
 
 Service 6 splitting into a diagnose tool and a remediate tool is the one place a one-to-one mapping
@@ -85,18 +91,19 @@ Two things this candidate does not settle:
 * **The count is larger than it looks.** It is eight tools, not 6+1, and `ops.remediate` hides four
   distinct actions — force-provision, cancel, reconcile with `RESEND`, reconcile with `RE_DRIVE_ACK` —
   so ten or eleven in practice.
-* **The `ops.*` namespace is effectively a fourth MCP server.** The design has one server per
+* **The `ops.*` namespace is a fourth MCP server — decided (DL-026).** The design has one server per
   subsystem and puts the diagnostic tool on MCP#2 and MCP#3. The cross-subsystem join already exists
-  as one library call (`LandscapeDiagnostics`), which makes an ops server easy to build — but see §6
-  for what that costs. Which of the two to build is open ([`phase2-gaps.md`](phase2-gaps.md) 2.1).
+  as one library call (`LandscapeDiagnostics`), and phase 2 builds an ops-only MCP#4 over it, carrying
+  both detection and remediation; MCP#1–#3 carry customer tools only. The tool names above stay
+  candidates, and so does the count, which is [`phase2-gaps.md`](phase2-gaps.md) 2.2.
 
 ## 3. The ops/customer permission boundary already exists
 
 There is no authentication in this system (`decision-log.md` DL-012) but the *boundary* is modelled,
 by path and by operation:
 
-* customer-facing: `/api/v1/**`, `/activation/v1/orders/**`, billing's `getInvoices` /
-  `startPayment`;
+* customer-facing: `/api/v1/**`, `/activation/v1/orders/**`, billing's `getInvoices`,
+  `startPayment` and `payInvoice` (DL-024: the browserless half of the same customer action);
 * ops-only: `/activation/v1/ops/**`, the whole of `ops-console`, and billing's
   `exportPaymentBatch` / `listUnconfirmedBatches` / `getPaymentBatch` / `reconcileBatch`;
 * fault injection, which is neither: `/sim/clearing-house/config`,
@@ -132,14 +139,14 @@ Three things a UCP adapter will have to decide, which phase 1 leaves open:
 * **When the customer pays.** The invoice is issued by the process's last service task, *after*
   provisioning completes, so there is no invoice number to pass to `startPayment` until minutes after
   the order was placed. This is postpaid, activate-then-bill, and it means `startPayment` cannot be
-  called at checkout time. Either the UCP checkout models the purchase as a pending order that is
-  paid later, or a pay-at-checkout path has to be added. Check this against UCP's checkout-completion
-  and payment model before choosing ([`phase2-gaps.md`](phase2-gaps.md) 1.4).
-* **Who closes the payment loop.** Today `scripts/demo.sh` confirms the PaymentIntent and posts the
-  `payment_intent.succeeded` webhook itself; neither `stripe-sim` nor `stripe-mock` sends webhooks,
-  and settlement batches are not cut automatically (DL-018). `clientSecret` assumes a browser running
-  Stripe.js, which the chat channel does not have. Without a change here, an agent-driven purchase
-  stops at `OPEN` ([`phase2-gaps.md`](phase2-gaps.md) 1.3).
+  called at checkout time. **Decided (DL-025):** the UCP checkout is held in `complete_in_progress`
+  until the order is provisioned and the invoice is charged, and no pay-at-checkout path is added
+  ([`phase2-gaps.md`](phase2-gaps.md) 1.4).
+* **Who closes the payment loop — answered (gap 1.3).** The system does, for a channel with no
+  browser: billing's `payInvoice` confirms the PaymentIntent, makes the `SETTLEMENT_PENDING` transition
+  the webhook makes, and cuts the settlement batch; the invoice reaches `PAID` when the clearing house
+  answers, so the caller polls. `startPayment` and its `clientSecret` remain the browser hand-off for a
+  UCP-style checkout, and `/webhook/stripe` still works (DL-024).
 
 ## 5. The tokenomics experiment has a measurable subject
 
@@ -184,10 +191,12 @@ makes them agent-shaped rather than script-shaped:
 Both judgements depend on context no single query returns. That is the argument for an agent.
 
 It holds for remediation, not for detection. The joins above are already done in one library call,
-`LandscapeDiagnostics`, and the ops console serves each as one endpoint. If an `ops.diagnose` tool
-wraps it, the agent's contribution shrinks to the judgement step, and the tokenomics comparison has
-less translation work to measure. The design's alternative — per-subsystem diagnostic tools on MCP#2
-and MCP#3, with the agent doing the join — keeps the join on the agent's side. Which to build is open
+`LandscapeDiagnostics`, and the ops console serves each as one endpoint. **Decided (DL-026):** the ops
+MCP server wraps that call, so the agent's contribution is the judgement step. The tokenomics
+comparison does not lose anything by it, because the diagnosis is not one of the measured transactions
+(§5). The design's alternative — per-subsystem diagnostic tools on MCP#2 and MCP#3, with the agent
+doing the join — would also have missed the catalog half of branch A, which only the catalog can see.
+If the diagnosis is ever added to the measurement, DL-026 should be reopened
 ([`phase2-gaps.md`](phase2-gaps.md) 2.1).
 
 ## 7. What phase 2 must not "fix"
@@ -202,5 +211,51 @@ being measured:
 3. **The identifier-space mismatch** (`"00000042"` / `42` / `"BA-00042"`). An MCP layer should hide
    it, not eliminate it.
 
-`CLAUDE.md` repeats this list, because it is the easiest thing for a future session to tidy away by
-accident.
+[`AGENTS.md`](../AGENTS.md) §3 repeats this list, because it is the easiest thing for a future session
+to tidy away by accident.
+
+## 8. The agent layer: build order and where its tools come from (open)
+
+*An assessment from a 2026-10-06 discussion, not a decision. Nothing here has been built or verified by
+running it.*
+
+**What the layer is.** One function: given a persona (a system prompt plus a tool allowlist) and a user
+message, loop (the model asks for a tool, the tool runs, the result goes back) until the model is done.
+Your design already says it: one core, two personas. A framework supplies the loop. The one examined, the
+Claude Agent SDK (TypeScript package 0.3.291, read from `sdk.d.ts`, not run), takes the prompt, the tool
+servers and allow/deny lists, and its per-run result carries `duration_ms`, `usage`, `modelUsage`,
+`total_cost_usd` and `num_turns`, which is the tokenomics logging. No chat interface is needed: a
+"scenario" is a scripted first message.
+
+**The planned order, agents first and MCP servers afterwards, is feasible**, because before MCP servers
+exist the agent can still use *some* tool source. There are two, and which one is possible depends on the
+language of the agent core:
+
+| Tool source before MCP | Needs | What it is in the experiment |
+| --- | --- | --- |
+| **A. Raw tools**: generic HTTP, SQL, SOAP and file tools, schemas in the prompt | any language | the baseline arm of `PROJECT_DESC_HUN.md` |
+| **B. Typed in-process tools over `subsystem-clients`** | an agent core on the JVM | a middle arm: the canonical layer without the MCP protocol |
+
+The shared layer is Java and the SDK examined is TypeScript, so a non-JVM agent can reach `subsystem-clients`
+only through MCP servers. No Java agent framework was checked. With B the experiment has three arms
+(raw, in-process canonical, MCP). Raw versus in-process isolates the translation layer; in-process versus
+MCP isolates the protocol. The brief still asks for the MCP servers, so B does not replace them: the MCP
+tools would mostly be the same definitions moved behind the protocol.
+
+**Open points that decide how this is built**
+
+1. **The agent language** (JVM or not). It decides whether B exists.
+2. **What "raw" means:** generic tools, or one typed tool per endpoint. The comparison depends on it.
+3. **The persona boundary with generic tools.** There is no authentication (DL-012) and the customer/ops
+   split is by URL path only, so a generic HTTP tool lets a customer persona call `/ops/...`. The raw arm
+   needs a guard (for example a path allowlist inside the tool).
+4. **A scenario harness outside the agent.** The demo's failure setup (silencing the callback or the
+   clearing house) is a demo control, not an agent tool (DL-026), and each run needs a known starting
+   state. Build the harness before the agent.
+5. **Fairness across arms.** Prompts tuned for one arm do not carry to another, and the arm tuned first gets
+   more effort. Budget comparable effort per arm.
+6. **Granularity (gap 2.2) comes first for B.** Typed in-process tools are a tool surface with names,
+   schemas and a count, so the rule that granularity is settled before any tool is defined applies to them
+   as much as to MCP tools. Only A avoids it.
+
+These feed the 2.2 exercise ([`phase2-gaps.md`](phase2-gaps.md)).
