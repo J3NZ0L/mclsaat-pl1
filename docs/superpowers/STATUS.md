@@ -189,6 +189,18 @@ Implemented the first two code gaps from `docs/phase2-gaps.md` in `subsystem-cli
   onboarded through the shared layer before activation order placement.
 * Added focused unit tests: `ActivationRestClientTest` and `CatalogSubscriberRestClientTest`.
 
+## Gap 1.4 decided (2026-10-06, docs only)
+Decision record: `docs/decision-log.md` DL-025. Keep activate-then-bill; the UCP checkout is held
+`complete_in_progress` until the order is provisioned and the invoice is `SETTLEMENT_PENDING`, then
+`completed`. Checkout quotes the billing-derived total. UCP and chat share one lifecycle (UCP charges
+automatically, chat pays explicitly, both via `payInvoice`). A declined charge cancels the checkout and
+goes to ops; no automatic compensation. **No code changed.**
+
+Half-done / for the merge: `phase2-gaps.md` top "Status" paragraph still says 1.4 is open, and
+`phase2-seams.md` §4 still describes the choice as open; both were left alone to avoid colliding with
+the 1.3 branch (`bugfix/phase-2-gap-payment-closure`, which owns DL-024). Needed later: an optional
+payment-method element on `payInvoice` (both XSD copies) and a fault-injectable decline in `stripe-sim`.
+
 ## Next action
 Continue with `docs/phase2-gaps.md` item 1.3 (payment loop closure without manual webhook posting),
 then revisit section 2 decisions after code support is in place.

@@ -63,7 +63,7 @@ Consequence: an agent-driven purchase, from either channel, stalls at `OPEN` —
 Additionally, `startPayment` returns a `clientSecret`, which assumes a browser running Stripe.js to
 confirm the payment. The chat channel has no browser.
 
-### 1.4 Invoice timing versus checkout (a decision, not a bug)
+### 1.4 Invoice timing versus checkout — resolved 2026-10-06 (DL-025)
 
 `issueInvoice` runs **after** provisioning completes, so no invoice number exists to pay until
 activation has finished — minutes after the order is placed. This is postpaid, activate-then-bill,
@@ -73,9 +73,23 @@ which is realistic for a telco.
 only whether a purchase is one transaction or two. The design itself names two hook points:
 service 2 ("ide köt be az UCP checkout") and subsystem 3 ("itt köt be az UCP checkout").
 
-Open decision: keep activate-then-bill and model the UCP checkout around a pending order, or add a
-pay-at-checkout path. Verify against UCP's checkout-completion and payment model before choosing;
-this review did not check the spec.
+**Resolved: keep activate-then-bill, and hold the UCP checkout in `complete_in_progress`.** Checked
+against UCP release `v2026-08-25`: Complete Checkout requires a payment instrument, the Order has no
+payment-pending state, and the checkout has an asynchronous `complete_in_progress` status for exactly
+this case. The checkout becomes `completed` once the order is provisioned and the invoice has reached
+`SETTLEMENT_PENDING` (the card charge succeeded; `PAID` is not awaited), and `canceled` on an ops
+cancel, a final charge decline or expiry. No legacy code changes. Also decided there:
+
+* the checkout quotes the **billing-derived** total (5990.01 / 17989.99 for the two DL-014 plans), so
+  quote, invoice and charge agree;
+* UCP and chat share one lifecycle; only the trigger differs (UCP charges automatically, chat pays
+  explicitly), and both end in `payInvoice` (1.3);
+* a declined charge cancels the checkout and surfaces to ops, with no automatic compensation.
+
+The full answers, the rejected options (deferred Payment Term, authorize-then-capture) and the
+acceptance criteria are in [`decision-log.md`](decision-log.md) DL-025. Still open from this: an optional
+payment-method element on `payInvoice` so the UCP instrument can reach the charge (additive, both XSD
+copies), and a fault-injectable decline in `stripe-sim`.
 
 ---
 

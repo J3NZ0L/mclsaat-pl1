@@ -328,3 +328,103 @@ They were originally declared without versions, which works but makes the build 
 resolves "latest" each time) and breaks `dependency:go-offline`, which cannot pre-fetch a plugin whose
 version it does not know — noisy on every module and a real cost inside a Docker build, where the
 dependency layer is meant to be cached.
+
+## DL-025 — Gap 1.4: the UCP checkout stays `complete_in_progress` over activate-then-bill
+
+Closes gap 1.4 of [`phase2-gaps.md`](phase2-gaps.md). Decided with the user on 2026-10-06, as a
+research-then-interview exercise. **Nothing in the legacy system changes for this decision**; it fixes
+the contract that the phase-3 UCP adapter is built against.
+
+**Decision.** Keep activate-then-bill. `issueInvoice` stays the last task of the BPMN. A UCP Complete
+Checkout is accepted straight away and the checkout stays `complete_in_progress` for as long as the
+order is being provisioned and charged. It becomes `completed` only when the money has actually moved.
+
+| UCP checkout status | State of this system |
+| --- | --- |
+| `incomplete` / `ready_for_complete` | before any order exists: onboarding, validation, quote (adapter only) |
+| `complete_in_progress` (no `order`) | order `RECEIVED` … `AWAITING_PROVISIONING`; then `PROVISIONED` with an `OPEN` invoice; then the charge is being made |
+| `completed` (`order.id` = order number) | order `PROVISIONED` **and** invoice `SETTLEMENT_PENDING` or later. `PAID` is **not** awaited: it is the back-office books (DL-013), not the card charge |
+| `canceled` | order `CANCELLED` / `FAILED` (ops cancel), the checkout reaching `expires_at`, or a final charge decline |
+
+### Answers to the twelve decision questions
+
+| # | Answer |
+| --- | --- |
+| Q1 | The checkout ends in `completed` only after a successful charge. "Order accepted, payment pending" is expressed as `complete_in_progress`, never as a completed order: UCP's Order has no payment-pending state. |
+| Q2 | A delayed first payment is acceptable. The delay is the provisioning time (seconds in the demo, DL-017). |
+| Q3 | The charge is attempted as soon as the order reports an `invoiceNo`, and must succeed or be given up before the checkout's `expires_at`. `expires_at` must exceed the provisioning timeout plus the retry budget (UCP's default is six hours). |
+| Q4 | Not applicable. No pay-at-checkout branch is added. |
+| Q5 | One lifecycle for both channels, two triggers. UCP: the adapter charges automatically with the instrument supplied at Complete Checkout, which is the buyer's consent. Chat: the customer pays explicitly (service 5). Both end in the same `payInvoice(invoiceNo)` call. |
+| Q6 | The checkout quotes the **billing-derived** gross: net = round(gross / 1.27), VAT = round(net × 0.27), total = net + VAT. That is 5990.01 for `MOB-VOICE-0010` and 17989.99 for `INET-FIB-1000`, i.e. what billing will invoice and Stripe will charge. |
+| Q7 | The UCP adapter owns "quote == charge". The catalog-versus-billing disagreement itself stays unowned *inside* the legacy systems: DL-014 is untouched and `VatCalculatorTest` does not change. |
+| Q8 | A decline never yields `completed`. Bounded retries (idempotent by `invoiceNo`), then the checkout is `canceled` with an explicit message before `expires_at`. The `PROVISIONED` order and its `OPEN` invoice are left as they are and surfaced to ops. There is **no automatic compensation**: recorded below as a known gap. |
+| Q9 | No new status vocabulary. `OrderStatus` and `InvoiceStatus` map onto UCP statuses by the table above. "Provisioned but unpaid" is `PROVISIONED` + `OPEN`; "paid but unsettled" is `SETTLEMENT_PENDING`. |
+| Q10 | None in the normal customer flow. Ops is needed for failure branches A and B and for the decline follow-up, as before. |
+| Q11 | Required. The order number is the key at order placement, `invoiceNo` at payment, and the UCP idempotency key of Complete Checkout maps onto the order number. A replayed Complete Checkout creates neither a second order nor a second charge. |
+| Q12 | Telco realism wins (`AGENTS.md` §8). The checkout's immediacy is given up; polling (`Get Checkout`) bridges the gap, which also matches the design's polling-only failure detection. |
+
+There is no finance or legal stakeholder in this single-developer PoC (Task C). "No legal constraint on
+invoice-after-service" is an assumption, not a finding; Hungarian invoicing-timing rules were not
+researched.
+
+### Rejected
+
+* **1b. `completed` immediately, with a deferred Payment Term.** The most telco-natural fit and the
+  newest spec feature, and it stays the documented evolution path. Rejected for now because (a) it is an
+  extension, and a buying platform has to support it for it to apply (my inference from UCP's capability
+  negotiation, not verified); (b) the instrument must be able to fund a deferred charge, which needs an
+  off-session saved-payment-method model that does not exist (1.3 charges a fixed test card); (c) a
+  decline after `completed` has no checkout status, only order `adjustments`.
+* **2. Authorize at checkout, capture on activation.** Needs a new BPMN task, new billing operations, a
+  SOAP contract change in both XSD copies, capture support in `stripe-sim` (it has none), and a void on
+  cancel, plus hold-expiry as a new failure mode. It also widens the scope of a gap that was meant to be a
+  decision. A prepay-invoice variant is worse: it adds refunds.
+* **Quote the catalog price.** For two of nine plans the buyer would be charged an amount other than the
+  one shown, with nobody owning it.
+* **Fix the VAT round trip.** Reverses DL-014 and removes a measured mismatch.
+* **Autopay for chat.** Makes service 5 decorative and needs a stored payment method that does not exist.
+* **Automatic compensation after a decline** (terminate the subscription, cancel the invoice). Real
+  scope: nothing in billing ever sets an invoice to `CANCELLED`, and ops has no action that reverses a
+  provisioned subscription.
+
+### Acceptance criteria for the implementation (non-negotiable)
+
+1. **No legacy change.** BPMN order, `startPayment` and `payInvoice` (1.3) are not altered by this decision.
+2. **Status mapping** is exactly the table above. `completed` is never returned before the invoice has
+   reached `SETTLEMENT_PENDING`, and never waits for `PAID`.
+3. **No charge before an invoice exists.** The adapter learns the invoice from the order
+   (`CanonicalOrder.invoiceNo`, set once provisioned) and calls `payInvoice(invoiceNo)`. One order yields
+   exactly one charge across retries, replays and concurrent polls.
+4. **Quote == invoice gross == charge** for all nine seeded plans, with a test. The quote differs from the
+   catalog browse price for exactly the two plans DL-014 names.
+5. **Decline path** (needs a fault-injectable decline in `stripe-sim`, to be built): no `completed`,
+   `canceled` with a message before `expires_at`, order and invoice unchanged, and listable by an ops
+   diagnostic as "`PROVISIONED`, invoice `OPEN` beyond a threshold".
+6. **Failure branch A:** a `STUCK` order leaves the checkout `complete_in_progress`; ops cancel gives
+   `canceled`; force-provision continues to the charge.
+7. **Failure branch B:** a silenced clearing house does not affect the checkout, which completes at
+   `SETTLEMENT_PENDING`; the stranded invoice is still reported by the existing diagnostics.
+8. **Chat is unchanged:** payment is an explicit customer action and never automatic.
+9. **`expires_at`** is set above provisioning timeout plus retry budget.
+10. **Order identifiers:** the UCP `order.id` is the activation order number, which contains slashes
+    (DL-019), so any `permalink_url` must carry it as a query parameter.
+
+### Research basis and its limits
+
+UCP release `v2026-08-25`, read from the raw schemas at that git tag and from the docs site. Verified in
+the schemas: the status enum includes `complete_in_progress`; `payment` is required on complete;
+Payment Terms is in the release; the Order has `adjustments[]` and `messages[]` but no payment status.
+The prose on polling behaviour and on the silence about post-acceptance declines came through a
+summarising fetch and should be re-read in the spec before the adapter is built.
+
+### Forward dependencies and a known gap
+
+* **The instrument must reach the charge.** Complete Checkout requires `payment.instruments` in every
+  option, but `payInvoice` takes only `invoiceNo` and charges `pm_card_visa` (DL-024). The adapter will
+  need an optional payment-method element on `payInvoiceRequest`, added to both XSD copies together
+  (`BillingContractCopyTest`). It is additive and breaks nothing; until then the test card stands in.
+* **Known gap: buyer view versus system state after a decline.** The buyer sees `canceled` while the
+  SIM may be live and the invoice open. Closing it means a billing cancel-invoice operation and an ops
+  action to terminate a provisioned subscription. Not built; a candidate third failure branch.
+* **`phase2-seams.md` §4** still describes the choice as open. It was left alone to avoid colliding
+  with the 1.3 edits to the same page, and needs a one-line update when the branches merge.
