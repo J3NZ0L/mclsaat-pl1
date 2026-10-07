@@ -34,7 +34,9 @@ This document outlines the planned milestones, current progress, and future obje
   - [ ] Decide if I want agents to call raw tools as a baseline (HTTP, SQL, SOAP), or if I want only an in-process canonical tool selection (needs a Java agent SDK), or, both, so that the tokenomics comparison can be complete
   - [ ] Choose which ADK, aimed at which ecosystem (TypeScript, Java, etc.) should be used, detail the decision: LangGraph / Google ADK / Claude ADK 
   - [ ] Build the agents on the chosen ADK
+  - [ ] Dashboard for the docker containers, in a simple Python web framework like Django
 - [ ] Testing without chat
+  - Use the dashboard
   - The proposed way to do that is to test demo script workflows, orchestrated by agents, logged
 - [ ] Build the MCP servers
 
