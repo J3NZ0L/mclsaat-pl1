@@ -713,3 +713,42 @@ as the backstop for the window between "quiet" and the delete; what is left of i
 Each test also drains in `@AfterEach` now, while its own stubs are still in place: that closes the window
 in which the executor drove a parked instance after Mockito had reset the stubs it needed, which used to
 log a `NullPointerException` from `ValidateOrderDelegate` between tests.
+
+## DL-028 — Phase 2 baseline uses generic raw tools (2-arm tokenomics experiment)
+
+For the pre-MCP agent baseline (`ROADMAP.md` Week 8, `phase2-seams.md` §8), the agent will use **only
+raw tools**, implemented as **generic protocol tools** (HTTP, SQL, SOAP, file), with schemas and
+dialect rules in the prompt—and **no** JVM in-process canonical tool arm over `subsystem-clients`.
+
+* **Experiment shape:** A **2-arm** tokenomics comparison (`raw generic` vs. `MCP`), measuring the
+  combined effect of semantic translation and the MCP protocol rather than isolating them via a
+  middle in-process arm. Note for the Week 11 methodology deliverable: the raw arm bundles both
+  protocol/syntax friction (raw SQL/SOAP XML) and semantic friction (IDs, units, VAT, statuses).
+* **Consequences:**
+  * The agent ADK/language is unconstrained (does not need to run on the JVM).
+  * Canonical tool granularity (`phase2-gaps.md` §2.2) remains deferred until MCP server design.
+  * Because there is no authentication (`DL-012`), the generic HTTP/SQL tools must enforce a
+    persona boundary (e.g. a path/query allowlist blocking `/ops/...` for the customer persona).
+
+## DL-029 — Agent core uses LangGraph (Python)
+
+For the Phase 2 agent layer (`ROADMAP.md` Week 8), the agent core will be built with **LangGraph in
+Python** (`langgraph`, plus `langchain-mcp-adapters` in Week 9 for MCP integration).
+
+* **Why LangGraph (Python):**
+  * **Ecosystem alignment:** `DL-028` removed the JVM constraint, and `ROADMAP.md` already plans a
+    Python web dashboard (e.g. Django), keeping the entire Phase 2 agent/dashboard stack in Python.
+  * **Workflow & routing fit:** Explicit stateful graph orchestration fits the multi-turn async
+    activation polling, ops remediation judgement, and Week 9 orchestrator/router requirements.
+  * **Vendor neutrality & MCP:** Model-agnostic across LLM providers (keeping the tokenomics
+    comparison independent of a single vendor) and integrates with MCP servers via
+    `langchain-mcp-adapters` (`MultiServerMCPClient`).
+  * **Enterprise relevance:** Durable state-machine orchestration with checkpointing and
+    human-in-the-loop patterns is widely used in production enterprise agent architectures.
+* **Consequences:**
+  * Tokenomics metrics (`input_tokens`, `output_tokens`, `total_tokens`, latency, turn count, and
+    estimated cost) must be recorded explicitly via LangChain/LangGraph callbacks or tracing (unlike
+    the Claude Agent SDK example noted in `phase2-seams.md` §8, which returns them in one summary
+    object).
+  * Canonical tool granularity (`phase2-gaps.md` §2.2) remains open until MCP server design in
+    Week 9.
