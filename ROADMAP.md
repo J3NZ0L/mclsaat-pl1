@@ -40,6 +40,7 @@ This document outlines the planned milestones, current progress, and future obje
     — Decided (DL-029): LangGraph
   - [ ] Build the agents on the chosen ADK
   - [ ] Generate a dashboard for the docker containers, in a simple Python web framework like Django, so that agent interactions and container / service state can be followed easily.
+    - implemented by copilot on `feat/container-dashboard`, need to review and test, then merge the PR
 - [ ] Testing without chat
   - Use the dashboard
   - The proposed way to do that is to test demo script workflows, orchestrated by agents, logged
