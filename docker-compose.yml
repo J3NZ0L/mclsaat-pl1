@@ -235,6 +235,18 @@ services:
       retries: 20
       start_period: 30s
 
+  # Read-only local view of the Compose project's container and health state.
+  dashboard:
+    build:
+      context: ./dashboard
+    environment:
+      DASHBOARD_PROJECT: mclsaat-legacy
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   # Stands in for the clearing house's file drop. Written by billing, read by ops.

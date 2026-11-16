@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Container Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">MCLSaaT operations</p>
+          <h1>Container dashboard</h1>
+          <p class="subtitle">Live state for the <code>{{ project }}</code> Docker Compose project.</p>
+        </div>
+        <div class="refresh">
+          <span id="last-updated">Waiting for Docker</span>
+          <button id="refresh" type="button">Refresh</button>
+        </div>
+      </header>
+      <section id="summary" class="summary" aria-label="Container summary"></section>
+      <section id="containers" class="grid" aria-live="polite">
+        <p class="loading">Loading container state…</p>
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+  </body>
+</html>

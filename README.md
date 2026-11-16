@@ -10,6 +10,11 @@ docker compose up --build      # the whole thing
 scripts/demo.sh                # happy path + both failure branches, end to end
 ```
 
+The local container dashboard is available at [http://localhost:8000](http://localhost:8000) after
+`docker compose up --build`. It shows the Compose services, Docker lifecycle state, health status,
+images and published ports, refreshing every five seconds. The dashboard is intentionally isolated in
+`dashboard/` and reads the Docker socket without changing any legacy service.
+
 Not a mock system. The databases, migrations, SOAP stack, WSDL, fixed-width file formats, process
 engine, job executor, timers and inter-service HTTP calls are all real. Two things are simulated,
 because the alternative teaches nothing: **Stripe** (the `stripe-sim` stand-in, or the official `stripe-mock`, spoken to through the
@@ -99,6 +104,7 @@ billing-service/      subsystem 3 — SOAP, batch files, Stripe, the clearing-ho
 subsystem-clients/    one canonical vocabulary + the mappers + one client per protocol
 ops-console/          the internal view across all three; the first consumer of the above
 stripe-sim/           a Stripe-shaped simulator for the non-Docker path
+dashboard/             isolated Flask container and read-only Docker state dashboard
 scripts/              run-local, stop-local, create-local-databases, demo
 docs/                 architecture, semantic mismatches, API reference, run guide, decisions, seams
 ```
