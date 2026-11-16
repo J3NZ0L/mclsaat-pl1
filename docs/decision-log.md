@@ -713,3 +713,19 @@ as the backstop for the window between "quiet" and the delete; what is left of i
 Each test also drains in `@AfterEach` now, while its own stubs are still in place: that closes the window
 in which the executor drove a parked instance after Mockito had reset the stubs it needed, which used to
 log a `NullPointerException` from `ValidateOrderDelegate` between tests.
+
+## DL-028 — Phase 2 baseline uses generic raw tools (2-arm tokenomics experiment)
+
+For the pre-MCP agent baseline (`ROADMAP.md` Week 8, `phase2-seams.md` §8), the agent will use **only
+raw tools**, implemented as **generic protocol tools** (HTTP, SQL, SOAP, file), with schemas and
+dialect rules in the prompt—and **no** JVM in-process canonical tool arm over `subsystem-clients`.
+
+* **Experiment shape:** A **2-arm** tokenomics comparison (`raw generic` vs. `MCP`), measuring the
+  combined effect of semantic translation and the MCP protocol rather than isolating them via a
+  middle in-process arm. Note for the Week 11 methodology deliverable: the raw arm bundles both
+  protocol/syntax friction (raw SQL/SOAP XML) and semantic friction (IDs, units, VAT, statuses).
+* **Consequences:**
+  * The agent ADK/language is unconstrained (does not need to run on the JVM).
+  * Canonical tool granularity (`phase2-gaps.md` §2.2) remains deferred until MCP server design.
+  * Because there is no authentication (`DL-012`), the generic HTTP/SQL tools must enforce a
+    persona boundary (e.g. a path/query allowlist blocking `/ops/...` for the customer persona).
