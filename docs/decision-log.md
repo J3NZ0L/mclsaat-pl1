@@ -713,3 +713,15 @@ as the backstop for the window between "quiet" and the delete; what is left of i
 Each test also drains in `@AfterEach` now, while its own stubs are still in place: that closes the window
 in which the executor drove a parked instance after Mockito had reset the stubs it needed, which used to
 log a `NullPointerException` from `ValidateOrderDelegate` between tests.
+
+## DL-028 — The container dashboard is a separate read-only Python service
+
+The local operations dashboard lives under `dashboard/` rather than inside `ops-console` or another
+legacy module. It is a small Flask application with its own image, dependencies, tests and templates,
+because the dashboard is infrastructure observability for the future agents, not another business
+interface in the deliberately heterogeneous Java landscape.
+
+The dashboard mounts `/var/run/docker.sock` read-only and uses the Docker SDK only to list container
+metadata and health state. It filters by the Compose project label, exposes no container-control
+operations, and refreshes the browser view every five seconds. This keeps the first version useful
+for local development while making the security boundary and eventual agent integration explicit.
