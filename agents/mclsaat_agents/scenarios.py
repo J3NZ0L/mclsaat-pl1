@@ -10,6 +10,13 @@ answer's wording) -> teardown (always runs).
 
 The three `measured=True` scenarios are the tokenomics transactions of phase2-seams.md §5; the ops
 scenarios demonstrate the agent's value but are outside the measurement (DL-026 Q1).
+
+Runs change the system: invoice_pay uses up OPEN invoices, and an ops run may terminate the seeded
+SUB-2026-000009 that DL-007 needs findable from a cold start. Runs are only comparable from the
+same starting state, so reset the landscape between measured series (TODO.md §7).
+
+Teardown is called even when setup fails half-way, with whatever context exists (possibly {}), so
+it must not assume setup finished.
 """
 from __future__ import annotations
 
@@ -97,8 +104,10 @@ def setup_ops_stuck(settings: Settings) -> dict:
     # POST {activation}/activation/v1/orders with customerRef 101, offerId "mob.voice.0010",
     # simulateStuck true, provisioningTimeout "PT5S" (copy the full body from demo.sh), then wait
     # until GET ...orders?orderNo=... reports STUCK. Return {"order_no": ...}.
-    # The check: that order is PROVISIONED (force-provision) or CANCELLED, and the seeded
-    # SUB-2026-000009 was mentioned as ORPHANED_PENDING_SUBSCRIPTION.
+    # The check, on system state rather than wording: that order is PROVISIONED (force-provision)
+    # or CANCELLED, and the seeded SUB-2026-000009 is no longer PA in the catalog (terminated) or
+    # is named in the answer as needing a human. Do not match the label
+    # ORPHANED_PENDING_SUBSCRIPTION: only the ops console says it, and the raw agent may not use it.
     raise NotImplementedError("TODO(you): scenarios.py setup_ops_stuck")
 
 

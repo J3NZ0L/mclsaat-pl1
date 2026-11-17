@@ -118,8 +118,14 @@ Still yours:
 
 ## 7. Run and verify
 
-- [ ] `python -m mclsaat_agents.run --list`, then run each scenario 3 times. Three runs make
-      variance visible, and a single run proves little.
+- [ ] **Reset to a known state before each measured series.** Runs change data: `invoice_pay` uses up
+      open invoices, and an ops run may terminate the seeded `SUB-2026-000009`.
+      - Compose: `docker compose down -v && docker compose up --build` wipes the volume, and Flyway
+        reseeds it.
+      - Local: `scripts/stop-local.sh --clean`, then `dropdb catalogdb flowabledb billingdb` as the
+        postgres superuser, then `scripts/create-local-databases.sh` and `scripts/run-local.sh`.
+- [ ] `python -m mclsaat_agents.run --list`, then run each scenario 3 times from a fresh reset.
+      Three runs make variance visible, and a single run proves little.
 - [ ] Read at least one transcript per scenario end to end. Did it translate `00000043` → `43`,
       `MOB-VOICE-0050` → `mob.voice.0050` and MB ↔ GB (1024) correctly? Note every silent wrong
       answer. These are the correctness results (`phase2-seams.md` §5).

@@ -47,16 +47,26 @@ def main(argv: list[str] | None = None) -> int:
     model = init_chat_model(settings.model, temperature=0)
     graph = build_graph(model.bind_tools(tools), tools, persona.system_prompt())
 
-    ctx = scenario.setup(settings)
-    state = initial_state(scenario.message.format(**ctx))
-    outcome = "completed"
-    started = time.perf_counter()
+    ctx: dict = {}
     try:
-        state = graph.invoke(state, config={"recursion_limit": settings.recursion_limit})
-    except Exception as e:  # recorded, not swallowed: the record says the run failed and why
-        outcome = f"error: {type(e).__name__}: {e}"
-    finally:
+        # Inside the try: a setup that fails half-way (clearing house already silenced, payment not
+        # made) must still be undone by teardown, or every later run - and demo.sh - inherits it.
+        ctx = scenario.setup(settings)
+        state = initial_state(scenario.message.format(**ctx))
+        outcome = "completed"
+        started = time.perf_counter()
+        try:
+            # stream(), not invoke(): each chunk is the full state after one step, so when a run dies
+            # (a looping agent hitting recursion_limit, a provider error) we still hold the tokens it
+            # spent. With invoke() a failed run would be recorded as free, which flatters exactly the
+            # arm most likely to loop.
+            for state in graph.stream(state, config={"recursion_limit": settings.recursion_limit},
+                                      stream_mode="values"):
+                pass
+        except Exception as e:  # recorded, not swallowed: the record says the run failed and why
+            outcome = f"error: {type(e).__name__}: {e}"
         latency_s = time.perf_counter() - started
+    finally:
         scenario.teardown(settings, ctx)
 
     for message in state["messages"]:
