@@ -1,0 +1,11 @@
+# Pinned to the versions that resolved on Python 3.12 on 2026-11-17. Raise them together, on purpose.
+langgraph==1.2.22
+langchain==1.5.0
+langchain-core==1.8.1
+# The model provider. Swap or add one (langchain-openai, langchain-google-genai, ...) and change
+# AGENT_MODEL in .env; nothing else in the code names a vendor (DL-029).
+langchain-anthropic==1.7.10
+httpx==0.28.1
+psycopg[binary]==3.3.9
+python-dotenv==1.2.4
+pytest==9.2.0
