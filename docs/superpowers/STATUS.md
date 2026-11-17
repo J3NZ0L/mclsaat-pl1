@@ -1,9 +1,46 @@
 # STATUS
 
-_Updated: 2026-10-06 (test and docs repairs: DL-027, DL-026 restored; catalog terminate wrapper added;
-gap 2.1 decided: DL-026; gap 1.3 implemented: system-owned payment closure; gap 1.4 decided: DL-025)_
+_Updated: 2026-11-17 (Week 8: raw-arm agent scaffold on `feat/agents-scaffold`; DL-028 raw generic
+tools and DL-029 LangGraph decided on `chore/update-roadmap`)_
 
-## Latest: test and docs repairs (branch `bugfix/phase-2-gaps`)
+## Latest: agent scaffold (branch `feat/agents-scaffold`, off `chore/update-roadmap`)
+
+Phase 2 has started, with code outside the Maven reactor: a Python package in `agents/`. It contains
+the raw arm of the 2-arm tokenomics experiment (DL-028) on LangGraph (DL-029), with one agent core and
+two personas. It is a scaffold. The parts the user is learning to write are left as `TODO(you)` blocks,
+and `agents/TODO.md` is the step-by-step guide.
+
+* **Done and tested:**
+  * the persona allowlist in `agents/mclsaat_agents/personas.py`, which is the persona boundary DL-028
+    requires;
+  * the SOAP-operation, SELECT-only and path-traversal guards;
+  * the graph wiring, run records (`agents/runs/runs.jsonl`), the scenario harness's fault-injection
+    switches, and the CLI.
+* **Left to the user:**
+  * the I/O in the four tools, and the three graph nodes;
+  * the prompts' system knowledge, the price table, and the scenario setups and checks.
+* **Evidence:**
+  * Commits `6d77c77` and `572e313`.
+  * `cd agents && .venv/bin/pytest -q` gives **28 passed, 1 skipped**, with no API key and no running
+    system.
+  * The skipped loop test passes (29/29) against a reference implementation of the graph TODOs, run
+    in a scratch copy and not committed.
+  * A scratch check confirmed that a run stopped by `recursion_limit` still records its tokens and
+    still runs teardown.
+* **Not verified:** no run yet against the live system or a real model.
+* **Environment:**
+  * `agents/.venv` uses Python 3.12. The system Python is 3.14, and the pins were resolved on 3.12.
+  * The file tool defaults to `.local-run/batch-exchange`. Under compose the volume is not visible
+    from the host; that needs a DL entry when it is addressed.
+* **Open, to record as DL-030:**
+  * the prompt-content level (A, B or C, see `prompts/customer.md`);
+  * whether the raw ops agent may use the ops console (currently allowed; two rules in `OPS_ONLY_HTTP`).
+* **Not pushed.**
+
+**Next action:** the user follows `agents/TODO.md`, starting at §0 (`.env`, start the system) and §1
+(the two readings). Gap 2.2 still has to be settled before any MCP tool is defined (Week 9).
+
+## Earlier: test and docs repairs (branch `bugfix/phase-2-gaps`)
 
 Three defects left on this branch, all fixed. Decision record: `docs/decision-log.md` DL-027 for the
 first two.
