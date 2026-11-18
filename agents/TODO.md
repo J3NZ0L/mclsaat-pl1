@@ -31,7 +31,7 @@ DL-029 live):
 - [x] `uv venv --python 3.12 agents/.venv`. The system Python is 3.14. The pins were resolved and
       tested on 3.12, so 3.12 is the safe choice.
 - [x] `VIRTUAL_ENV=agents/.venv uv pip install -r agents/requirements.txt`. This installs
-      langgraph 1.2.22, langchain 1.5.0, langchain-anthropic 1.7.10, httpx, psycopg 3, python-dotenv
+      langgraph 1.2.22, langchain 1.5.0, langchain-anthropic 1.7.10, langchain-google-genai 4.5.0, httpx, psycopg 3, python-dotenv
       and pytest.
 - [x] `.gitignore` covers `.venv/`, `__pycache__/`, `agents/.env` and `agents/runs/`.
 - [x] `cd agents && .venv/bin/pytest -q` gives **28 passed, 1 skipped**, with no API key and no
@@ -40,9 +40,12 @@ DL-029 live):
 Still yours:
 
 - [ ] `source agents/.venv/bin/activate`. Run every command below from `agents/`.
-- [ ] `cp .env.example .env`, then set `ANTHROPIC_API_KEY`. To use another provider, change
-      `AGENT_MODEL` (`"<provider>:<model>"`) and add its `langchain-<provider>` package to
-      `requirements.txt`.
+- [ ] `cp .env.example .env`, then set `GOOGLE_API_KEY` (a Google AI Studio key; the free plan works,
+      but it is rate-limited, so expect an occasional HTTP 429). `AGENT_MODEL` defaults to
+      `google_genai:gemini-2.5-flash`. To use another provider, change `AGENT_MODEL`
+      (`"<provider>:<model>"`) and add its `langchain-<provider>` package to `requirements.txt`
+      (`langchain-anthropic` is already installed).
+- [ ] Modify the agent module to use the pure uv interface instead of uv's pip one 
 - [ ] Start the legacy system with **`scripts/run-local.sh`** (recommended for now) or
       `docker compose up --build`. Then run `scripts/demo.sh` once to get a known state.
       - The file tools read `BATCH_EXCHANGE_DIR`. Under run-local.sh that is
@@ -140,7 +143,7 @@ Still yours:
       written down.
 - [ ] The persona allowlist table in `personas.py` is the persona boundary that DL-028 requires.
       Reference it.
-- [ ] Then tick "Build the agents" in `ROADMAP.md` and update `docs/superpowers/STATUS.md`.
+- [ ] Then tick "Build the agents" in `ROADMAP.md` and update `docs/superpowers/STATUS.md` and `AGENTS.md`.
 
 **Not here:** MCP servers (Week 9). Settle gap **2.2** (tool granularity) with the user *before*
 defining any MCP tool (`AGENTS.md` §8). The generic raw tools here do not trigger that rule

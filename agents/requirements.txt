@@ -2,9 +2,11 @@
 langgraph==1.2.22
 langchain==1.5.0
 langchain-core==1.8.1
-# The model provider. Swap or add one (langchain-openai, langchain-google-genai, ...) and change
-# AGENT_MODEL in .env; nothing else in the code names a vendor (DL-029).
+# The model providers. Swap or add one (langchain-openai, ...) and change AGENT_MODEL in .env;
+# nothing else in the code names a vendor (DL-029). langchain-google-genai is the Gemini API
+# (Google AI Studio key); it pulls in google-genai itself.
 langchain-anthropic==1.7.10
+langchain-google-genai==4.5.0
 httpx==0.28.1
 psycopg[binary]==3.3.9
 python-dotenv==1.2.4

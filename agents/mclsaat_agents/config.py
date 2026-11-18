@@ -41,7 +41,7 @@ class Settings:
 def load_settings() -> Settings:
     env = os.environ.get
     return Settings(
-        model=env("AGENT_MODEL", "anthropic:claude-sonnet-5-5"),
+        model=env("AGENT_MODEL", "google_genai:gemini-2.5-flash"),
         base_urls={
             "catalog": env("CATALOG_URL", "http://localhost:8081"),
             "activation": env("ACTIVATION_URL", "http://localhost:8082"),
