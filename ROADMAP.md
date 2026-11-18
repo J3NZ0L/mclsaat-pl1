@@ -65,3 +65,6 @@ This document outlines the planned milestones, current progress, and future obje
 **Target Date:** `2026-11-25`
 - [ ] Come to a general methodology conclusion, document it in great detail
   - An interesting question is that how should such modernization be automated?
+
+### Plus:
+- [ ] Routine task accomplishment time comparison and metrics, based on the Keystroke-level model
