@@ -752,3 +752,14 @@ Python** (`langgraph`, plus `langchain-mcp-adapters` in Week 9 for MCP integrati
     object).
   * Canonical tool granularity (`phase2-gaps.md` §2.2) remains open until MCP server design in
     Week 9.
+
+## DL-030 — `agents/` is a uv project, not a requirements file
+
+**Decided (user):** `agents/` uses uv's project interface (`pyproject.toml`, `uv.lock`, `uv sync`,
+`uv run`, `uv add`) instead of `uv venv` plus `uv pip install -r requirements.txt`, which is gone.
+
+* **Lockfile:** indirect dependencies were unpinned before. `uv.lock` was seeded from the installed
+  environment the scaffold was tested in, so the move changed no version.
+* **Python:** `requires-python = "==3.12.*"`, because the pins were only proven on 3.12.
+* **Not a package:** there is no `[build-system]`; the code still runs from `agents/` with
+  `uv run python -m mclsaat_agents.run`, and `pytest.ini` is unchanged.

@@ -28,24 +28,24 @@ grep -rn "TODO(you)" agents/mclsaat_agents agents/tests
 Already done on branch `feat/agents-scaffold` (branched from `chore/update-roadmap`, where DL-028 and
 DL-029 live):
 
-- [x] `uv venv --python 3.12 agents/.venv`. The system Python is 3.14. The pins were resolved and
-      tested on 3.12, so 3.12 is the safe choice.
-- [x] `VIRTUAL_ENV=agents/.venv uv pip install -r agents/requirements.txt`. This installs
-      langgraph 1.2.22, langchain 1.5.0, langchain-anthropic 1.7.10, langchain-google-genai 4.5.0, httpx, psycopg 3, python-dotenv
-      and pytest.
+- [x] `agents/` is a uv project: `pyproject.toml` pins the direct dependencies, `uv.lock` pins the
+      rest, `.python-version` selects 3.12 (the system Python is 3.14).
+- [x] `cd agents && uv sync`. This creates `agents/.venv` and installs langgraph 1.2.22,
+      langchain 1.5.0, langchain-anthropic 1.7.10, langchain-google-genai 4.5.0, httpx, psycopg 3,
+      python-dotenv and pytest.
 - [x] `.gitignore` covers `.venv/`, `__pycache__/`, `agents/.env` and `agents/runs/`.
-- [x] `cd agents && .venv/bin/pytest -q` gives **28 passed, 1 skipped**, with no API key and no
+- [x] `cd agents && uv run pytest -q` gives **28 passed, 1 skipped**, with no API key and no
       running system.
 
 Still yours:
 
-- [ ] `source agents/.venv/bin/activate`. Run every command below from `agents/`.
-- [ ] `cp .env.example .env`, then set `GOOGLE_API_KEY` (a Google AI Studio key; the free plan works,
+- [x] Run every command below from `agents/`, through `uv run`; there is no venv to activate.
+- [x] `cp .env.example .env`, then set `GOOGLE_API_KEY` (a Google AI Studio key; the free plan works,
       but it is rate-limited, so expect an occasional HTTP 429). `AGENT_MODEL` defaults to
       `google_genai:gemini-2.5-flash`. To use another provider, change `AGENT_MODEL`
-      (`"<provider>:<model>"`) and add its `langchain-<provider>` package to `requirements.txt`
+      (`"<provider>:<model>"`) and run `uv add langchain-<provider>`
       (`langchain-anthropic` is already installed).
-- [ ] Modify the agent module to use the pure uv interface instead of uv's pip one 
+- [x] Modify the agent module to use the pure uv interface instead of uv's pip one (DL-030).
 - [ ] Start the legacy system with **`scripts/run-local.sh`** (recommended for now) or
       `docker compose up --build`. Then run `scripts/demo.sh` once to get a known state.
       - The file tools read `BATCH_EXCHANGE_DIR`. Under run-local.sh that is
@@ -86,10 +86,10 @@ Still yours:
 - [ ] `llm_call`: invoke with the system prompt and add up `usage_metadata`.
 - [ ] `tool_node`: one `ToolMessage` per tool call, and never let an exception escape.
 - [ ] `should_continue`: return `"tool_node"` if the last message has `tool_calls`, else `END`.
-- [ ] Remove the `@pytest.mark.skip` in `tests/test_graph.py`, then run `pytest -q`. This should give
+- [ ] Remove the `@pytest.mark.skip` in `tests/test_graph.py`, then run `uv run pytest -q`. This should give
       29 passed. It proves the loop with a scripted fake model before you spend any tokens.
 - [ ] First real call, with no tools needed:
-      `python -m mclsaat_agents.run --persona customer --message "Hello, what can you do?"`.
+      `uv run python -m mclsaat_agents.run --persona customer --message "Hello, what can you do?"`.
 
 ## 4. Prompts (`mclsaat_agents/prompts/`)
 
@@ -127,14 +127,14 @@ Still yours:
         reseeds it.
       - Local: `scripts/stop-local.sh --clean`, then `dropdb catalogdb flowabledb billingdb` as the
         postgres superuser, then `scripts/create-local-databases.sh` and `scripts/run-local.sh`.
-- [ ] `python -m mclsaat_agents.run --list`, then run each scenario 3 times from a fresh reset.
+- [ ] `uv run python -m mclsaat_agents.run --list`, then run each scenario 3 times from a fresh reset.
       Three runs make variance visible, and a single run proves little.
 - [ ] Read at least one transcript per scenario end to end. Did it translate `00000043` → `43`,
       `MOB-VOICE-0050` → `mob.voice.0050` and MB ↔ GB (1024) correctly? Note every silent wrong
       answer. These are the correctness results (`phase2-seams.md` §5).
 - [ ] Re-run `scripts/demo.sh`. The agents must not have left the system in a state it cannot handle.
 
-## 8. Decide and record (`docs/decision-log.md`, next free DL, probably DL-030)
+## 8. Decide and record (`docs/decision-log.md`, next free DL, probably DL-031)
 
 - [ ] The prompt level (A, B or C) and why.
 - [ ] **Can the raw ops agent use the ops console?** It is a pre-joined canonical layer. The two

@@ -1,0 +1,24 @@
+[project]
+name = "mclsaat-agents"
+version = "0.1.0"
+description = "The raw arm of the tokenomics experiment: LangGraph agents over generic tools (DL-028, DL-029)."
+# The pins below were resolved and tested on 3.12 only.
+requires-python = "==3.12.*"
+# Direct dependencies are pinned to the versions that resolved on 2026-11-17; uv.lock pins the rest.
+# Raise them together, on purpose.
+dependencies = [
+    "langgraph==1.2.22",
+    "langchain==1.5.0",
+    "langchain-core==1.8.1",
+    # The model providers. Swap or add one (`uv add langchain-openai`, ...) and change AGENT_MODEL in
+    # .env; nothing else in the code names a vendor (DL-029). langchain-google-genai is the Gemini API
+    # (Google AI Studio key); it pulls in google-genai itself.
+    "langchain-anthropic==1.7.10",
+    "langchain-google-genai==4.5.0",
+    "httpx==0.28.1",
+    "psycopg[binary]==3.3.9",
+    "python-dotenv==1.2.4",
+]
+
+[dependency-groups]
+dev = ["pytest==9.2.0"]

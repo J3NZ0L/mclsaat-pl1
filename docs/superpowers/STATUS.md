@@ -1,7 +1,7 @@
 # STATUS
 
-_Updated: 2026-11-17 (Week 8: raw-arm agent scaffold on `feat/agents-scaffold`; DL-028 raw generic
-tools and DL-029 LangGraph decided on `chore/update-roadmap`)_
+_Updated: 2026-11-25 (`agents/` moved to a uv project, DL-030; Week 8: raw-arm agent scaffold on
+`feat/agents-scaffold`; DL-028 raw generic tools and DL-029 LangGraph decided on `chore/update-roadmap`)_
 
 ## Latest: agent scaffold (branch `feat/agents-scaffold`, off `chore/update-roadmap`)
 
@@ -21,7 +21,7 @@ and `agents/TODO.md` is the step-by-step guide.
   * the prompts' system knowledge, the price table, and the scenario setups and checks.
 * **Evidence:**
   * Commits `6d77c77` and `572e313`.
-  * `cd agents && .venv/bin/pytest -q` gives **28 passed, 1 skipped**, with no API key and no running
+  * `cd agents && uv run pytest -q` gives **28 passed, 1 skipped**, with no API key and no running
     system.
   * The skipped loop test passes (29/29) against a reference implementation of the graph TODOs, run
     in a scratch copy and not committed.
@@ -29,13 +29,14 @@ and `agents/TODO.md` is the step-by-step guide.
     still runs teardown.
 * **Not verified:** no run yet against the live system or a real model.
 * **Environment:**
-  * `agents/.venv` uses Python 3.12. The system Python is 3.14, and the pins were resolved on 3.12.
+  * `agents/` is a uv project (DL-030): `uv sync` builds `agents/.venv` from `uv.lock` on Python 3.12.
+    The system Python is 3.14, and the pins were resolved on 3.12.
   * The file tool defaults to `.local-run/batch-exchange`. Under compose the volume is not visible
     from the host; that needs a DL entry when it is addressed.
-* **Open, to record as DL-030:**
+* **Open, to record as DL-031:**
   * the prompt-content level (A, B or C, see `prompts/customer.md`);
   * whether the raw ops agent may use the ops console (currently allowed; two rules in `OPS_ONLY_HTTP`).
-* **Not pushed.**
+* **Pushed** to `origin/feat/agents-scaffold`.
 
 **Next action:** the user follows `agents/TODO.md`, starting at §0 (`.env`, start the system) and §1
 (the two readings). Gap 2.2 still has to be settled before any MCP tool is defined (Week 9).

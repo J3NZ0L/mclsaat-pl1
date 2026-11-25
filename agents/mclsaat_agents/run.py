@@ -1,8 +1,8 @@
 """Run one agent conversation and record its tokenomics.
 
-    python -m mclsaat_agents.run --list
-    python -m mclsaat_agents.run --scenario browse_order_poll
-    python -m mclsaat_agents.run --persona customer --message "Which mobile plans do you have?"
+    uv run python -m mclsaat_agents.run --list
+    uv run python -m mclsaat_agents.run --scenario browse_order_poll
+    uv run python -m mclsaat_agents.run --persona customer --message "Which mobile plans do you have?"
 
 No chat UI (that is Week 9): a scenario is a scripted first message.
 """
